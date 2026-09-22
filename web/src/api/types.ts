@@ -36,10 +36,17 @@ export interface Speaker {
   label: string | null
 }
 
+export interface EpisodeListItem extends Episode {
+  current_transcript_id: string | null
+  n_utterances: number
+  n_verified: number
+}
+
 export interface EpisodeDetail extends Episode {
   current_transcript_id: string | null
   n_utterances: number
   n_verified: number
+  n_words: number
   speakers: Speaker[]
 }
 

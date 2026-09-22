@@ -5,7 +5,7 @@ carry across episodes, and nothing here tries to match a voice to a person — t
 voices are identifiable private individuals and that is deliberate policy, not an
 oversight (PLAN §0.3).
 
-The canonical route is ``PUT /episodes/{id}/speakers/{cluster}`` in
+The canonical write route is ``PUT /episodes/{id}/speakers/{cluster}`` in
 :mod:`app.api.episodes`; this router holds the read side.
 """
 
@@ -14,18 +14,26 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..models import Speaker
 from ..schemas import SpeakerOut
-from . import not_implemented
+from .deps import require_editor
 
 router = APIRouter(tags=["speakers"])
 
 
 @router.get("/episodes/{episode_id}/speakers", response_model=list[SpeakerOut])
 def list_speakers(
-    episode_id: uuid.UUID, session: Session = Depends(get_session)
+    episode_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
 ) -> list[SpeakerOut]:
-    """TODO(T3): clusters present in the current transcript, with their labels."""
-    raise not_implemented("speaker listing")
+    rows = session.execute(
+        select(Speaker.cluster, Speaker.label)
+        .where(Speaker.episode_id == episode_id)
+        .order_by(Speaker.cluster)
+    ).all()
+    return [SpeakerOut(cluster=int(c), label=label) for c, label in rows]

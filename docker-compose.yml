@@ -57,8 +57,9 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://vnstt:vnstt@db:5432/vnstt}
-      # PLAN §3: ASR num_threads=3 on a 4 vCPU box.
-      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-3}
+      # PLAN §3 says 3 threads on a 4 vCPU box. This host also runs an unrelated
+      # stack, so the default is 2 and the worker is niced — see WORKER_NICE.
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
     depends_on:
       db:
         condition: service_healthy
@@ -72,6 +73,9 @@ services:
       resources:
         limits:
           memory: 4g
+          # Leave a vCPU and change for the API, Caddy and Postgres: an episode
+          # transcribing must never make the UI unresponsive.
+          cpus: "2.5"
 
   caddy:
     image: caddy:2-alpine

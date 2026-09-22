@@ -17,7 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from . import __version__
-from .api import auth, episodes, exports, hotwords, jobs, speakers, transcripts, utterances
+from .api import (
+    auth, episodes, exports, hotwords, jobs, speakers, transcripts, utterances,
+)
 from .config import settings
 from .db import engine
 from .schemas import Health, Stats
@@ -90,19 +92,61 @@ def health() -> Health:
 def _worker_heartbeat_s() -> float | None:
     """Seconds since the worker last touched its heartbeat row.
 
-    TODO(T3): the worker writes ``settings['worker_heartbeat']`` each poll; read it here
-    and let ``/api/health`` go unhealthy when it is stale.
+    ``None`` means the worker has never checked in. The caller decides what to do with
+    a stale value — health reports it rather than guessing a threshold here.
     """
-    return None
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("select value from settings where key = 'worker_heartbeat'")
+            ).scalar()
+    except Exception:  # noqa: BLE001 — health must report, not raise
+        return None
+    if not row:
+        return None
+    at = row.get("at") if isinstance(row, dict) else None
+    return None if at is None else max(0.0, time.time() - float(at))
 
 
 @app.get("/api/stats", response_model=Stats, tags=["ops"])
 def stats() -> Stats:
-    """Episodes by status, hours transcribed/verified, mean confidence (PLAN §9).
+    """Episodes by status, hours transcribed/verified, mean confidence (PLAN §9)."""
+    from sqlalchemy import func, select
 
-    TODO(T3).
-    """
-    return Stats()
+    from .db import SessionLocal
+    from .models import Episode, Transcript, Utterance, Word
+
+    with SessionLocal() as session:
+        by_status = {
+            str(status): int(n)
+            for status, n in session.execute(
+                select(Episode.status, func.count()).group_by(Episode.status)
+            ).all()
+        }
+
+        # Hours are measured on episodes that actually have a current transcript, not on
+        # everything ingested — otherwise a queued backlog reads as finished work.
+        transcribed_s = session.scalar(
+            select(func.coalesce(func.sum(Episode.duration_s), 0))
+            .where(Episode.id.in_(
+                select(Transcript.episode_id).where(Transcript.is_current.is_(True))
+            ))
+        ) or 0
+
+        verified_s = session.scalar(
+            select(func.coalesce(
+                func.sum(Utterance.end_s - Utterance.start_s), 0
+            )).where(Utterance.text_verified.is_not(None))
+        ) or 0
+
+        mean_conf = session.scalar(select(func.avg(Word.conf)))
+
+    return Stats(
+        episodes_by_status=by_status,
+        hours_transcribed=round(float(transcribed_s) / 3600.0, 2),
+        hours_verified=round(float(verified_s) / 3600.0, 2),
+        mean_conf=None if mean_conf is None else round(float(mean_conf), 4),
+    )
 
 
 @app.middleware("http")

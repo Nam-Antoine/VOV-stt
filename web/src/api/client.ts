@@ -4,6 +4,7 @@
 import type {
   Episode,
   EpisodeDetail,
+  EpisodeListItem,
   Health,
   Hotword,
   Job,
@@ -59,16 +60,20 @@ export const api = {
   stats: () => request<Stats>('/stats'),
 
   // --- auth --------------------------------------------------------------
-  login: (password: string) =>
-    request<{ ok: boolean }>('/auth/login', { method: 'POST', body: body({ password }) }),
+  login: (password: string, editor?: string) =>
+    request<{ ok: boolean }>('/auth/login', {
+      method: 'POST',
+      body: body({ password, editor }),
+    }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  me: () => request<{ ok: boolean }>('/auth/me'),
 
   // --- episodes ----------------------------------------------------------
   listEpisodes: (params: { status?: string; q?: string } = {}) => {
     const qs = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v) as [string, string][],
     )
-    return request<Episode[]>(`/episodes${qs.toString() ? `?${qs}` : ''}`)
+    return request<EpisodeListItem[]>(`/episodes${qs.toString() ? `?${qs}` : ''}`)
   },
   getEpisode: (id: string) => request<EpisodeDetail>(`/episodes/${id}`),
   uploadEpisode: (file: File) => {
@@ -80,6 +85,8 @@ export const api = {
     request<Episode>('/episodes/from-url', { method: 'POST', body: body(payload) }),
   transcribe: (id: string, params: Record<string, unknown> = {}) =>
     request<Job>(`/episodes/${id}/transcribe`, { method: 'POST', body: body(params) }),
+  exportEpisode: (id: string) =>
+    request<Job>(`/episodes/${id}/export`, { method: 'POST' }),
   deleteEpisode: (id: string) => request<void>(`/episodes/${id}`, { method: 'DELETE' }),
   setSpeakerLabel: (episodeId: string, cluster: number, label: string) =>
     request<{ label: string }>(`/episodes/${episodeId}/speakers/${cluster}`, {

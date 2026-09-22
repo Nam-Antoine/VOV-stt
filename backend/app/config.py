@@ -35,11 +35,14 @@ class Settings(BaseSettings):
     audio_dir: Path = Path("/data/audio")
     raw_dir: Path = Path("/data/raw")
     exports_dir: Path = Path("/data/exports")
+    #: Generated at run time, so it cannot live in models_dir — that is mounted
+    #: read-only in compose so a bad deploy cannot corrupt the downloaded ONNX.
+    hotwords_file: Path = Path("/data/hotwords.txt")
 
     # --- engine (PLAN §2) --------------------------------------------------
     asr_model_dir: Path = Path("/data/models/zipformer-30m-rnnt-6000h")
     asr_int8: bool = True
-    asr_num_threads: int = 3
+    asr_num_threads: int = 2
     asr_decoding_method: str = "modified_beam_search"
     asr_max_active_paths: int = 4
     asr_blank_penalty: float = 0.25
@@ -67,11 +70,18 @@ class Settings(BaseSettings):
     diar_num_clusters: int = 0
     diar_min_duration_on: float = 0.3
     diar_min_duration_off: float = 0.5
-    diar_num_threads: int = 3
+    diar_num_threads: int = 2
 
     # --- worker ------------------------------------------------------------
     worker_poll_interval_s: float = 2.0
     worker_max_attempts: int = 3
+    #: Diarization is the slow stage (~3-5x realtime vs ASR's ~7x) and it is what makes
+    #: the box hot. On by default because the deliverable is speaker-labelled text, but
+    #: a job can turn it off per run, and a loaded host can turn it off globally.
+    diarize_by_default: bool = True
+    #: Niceness applied to the worker process. The API and the reverse proxy must stay
+    #: responsive while an episode transcribes; the worker has no latency requirement.
+    worker_nice: int = 10
 
     # --- optional second engine (PLAN §11 T6) ------------------------------
     #: OFF by default. Turning this on sends audio abroad — see LICENSE-NOTICE.md.
@@ -89,6 +99,7 @@ class Settings(BaseSettings):
 
         return AsrParams(
             model_dir=str(self.asr_model_dir),
+            vocab_cache_dir=str(self.data_dir),
             int8=self.asr_int8,
             num_threads=self.asr_num_threads,
             blank_penalty=self.asr_blank_penalty,

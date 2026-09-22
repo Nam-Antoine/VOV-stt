@@ -12,11 +12,11 @@ import logging
 import sys
 from pathlib import Path
 
-from . import TIER_ASR, TIER_VERIFIED, csv, eaf, json_verified, srt, txt
+from . import TIER_ASR, TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
 
 log = logging.getLogger("exports")
 
-#: extension → (renderer, tier)
+#: extension -> (renderer, tier). ``tier=None`` means the renderer decides.
 RENDERERS = {
     "txt": (txt.render, TIER_ASR),
     "verified.txt": (txt.render, TIER_VERIFIED),
@@ -26,19 +26,52 @@ RENDERERS = {
     "verified.json": (json_verified.render, None),
 }
 
+#: Binary formats, written with write_bytes instead of write_text.
+BINARY_RENDERERS = {
+    "docx": (docx.render_bytes, TIER_VERIFIED),
+}
+
 
 def render_all(doc: dict, out_dir: Path, slug: str,
-               speakers: dict | None = None) -> list[Path]:
-    """Write every format for one document. Returns the paths written."""
+               speakers: dict | None = None,
+               overrides: dict | None = None,
+               title: str | None = None) -> list[Path]:
+    """Write every format for one document. Returns the paths written.
+
+    ``overrides`` is the verified layer keyed by utterance index. When it is supplied
+    the verified-tier renderers see the human text; the ASR-tier ones never do, which is
+    the whole point of keeping both tiers on disk (PLAN §0.2).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
+
+    # Layer the overrides onto a copy once, so each renderer downstream sees one
+    # consistent document instead of every renderer knowing about the override dict.
+    verified_doc = (
+        json_verified.build(doc, overrides=overrides, speakers=speakers)
+        if overrides else doc
+    )
+
     for ext, (render, tier) in RENDERERS.items():
-        kwargs: dict = {"speakers": speakers} if speakers is not None else {}
-        if tier is not None:
-            kwargs["tier"] = tier
         path = out_dir / f"{slug}.{ext}"
-        path.write_text(render(doc, **kwargs), encoding="utf-8")
+        if render is json_verified.render:
+            body = render(doc, overrides=overrides, speakers=speakers)
+        else:
+            kwargs: dict = {"speakers": speakers} if speakers is not None else {}
+            if tier is not None:
+                kwargs["tier"] = tier
+            body = render(verified_doc if tier == TIER_VERIFIED else doc, **kwargs)
+        path.write_text(body, encoding="utf-8")
         written.append(path)
+
+    for ext, (render, tier) in BINARY_RENDERERS.items():
+        source = verified_doc if tier == TIER_VERIFIED else doc
+        path = out_dir / f"{slug}.{ext}"
+        path.write_bytes(
+            render(source, tier=tier, speakers=speakers, title=title or slug)
+        )
+        written.append(path)
+
     return written
 
 

@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.exports import TIER_ASR, TIER_VERIFIED, csv, eaf, json_verified, srt, txt
+from app.exports import TIER_ASR, TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
 from app.pipeline import merge as merge_mod
 from app.pipeline.asr import tokens_to_words
 from app.pipeline.run import write_raw_json
@@ -178,6 +178,14 @@ def test_empty_verified_text_is_honoured_not_treated_as_absent():
 DIACRITIC_TEXT = ["ạ", "ừm", "nghiệp", "vụ", "Huyền", "Đàn", "bà", "30+"]
 
 
+def docx_document_xml(doc: dict) -> str:
+    """The .docx is a zip; the verbatim checks apply to the XML part inside it."""
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(docx.render_bytes(doc))) as z:
+        return z.read("word/document.xml").decode("utf-8")
+
+
 @pytest.mark.parametrize(
     "render",
     [
@@ -186,6 +194,7 @@ DIACRITIC_TEXT = ["ạ", "ừm", "nghiệp", "vụ", "Huyền", "Đàn", "bà", 
         pytest.param(lambda d: srt.render(d), id="srt"),
         pytest.param(lambda d: eaf.render(d), id="eaf"),
         pytest.param(lambda d: json_verified.render(d), id="json_verified"),
+        pytest.param(docx_document_xml, id="docx"),
     ],
 )
 def test_no_export_escapes_vietnamese_diacritics(render):
@@ -228,7 +237,14 @@ def test_word_count_is_identical_across_every_export():
     eaf_words = ET.fromstring(eaf.render(doc)).find(".//ANNOTATION_VALUE").text.split(" ")
     verified_words = json_verified.build(doc)["utterances"][0]["text"].split(" ")
 
+    # The docx body paragraph carrying the utterance, with the speaker heading skipped.
+    docx_xml = ET.fromstring(docx_document_xml(doc))
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    docx_texts = [t.text or "" for t in docx_xml.iter(f"{w}t")]
+    docx_words = [t for t in docx_texts if not t.endswith(":")][-1].split(" ")
+
     assert len(txt_words) == expected
+    assert len(docx_words) == expected
     assert len(csv_rows) == expected
     assert len(srt_words) == expected
     assert len(eaf_words) == expected

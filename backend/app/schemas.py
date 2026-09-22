@@ -20,6 +20,8 @@ class ORMModel(BaseModel):
 
 class LoginRequest(BaseModel):
     password: str
+    #: Free-text name recorded against this session's edits (utterance_edits.editor).
+    editor: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -66,7 +68,16 @@ class EpisodeDetail(EpisodeOut):
     current_transcript_id: uuid.UUID | None = None
     n_utterances: int = 0
     n_verified: int = 0
+    n_words: int = 0
     speakers: list[SpeakerOut] = Field(default_factory=list)
+
+
+class EpisodeListItem(EpisodeOut):
+    """Row shape for the Episodes table: the counts, without the speaker list."""
+
+    current_transcript_id: uuid.UUID | None = None
+    n_utterances: int = 0
+    n_verified: int = 0
 
 
 # --- jobs -------------------------------------------------------------------

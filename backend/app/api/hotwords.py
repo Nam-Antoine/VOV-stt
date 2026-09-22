@@ -7,46 +7,121 @@ must never discard human work (PLAN §0.2).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_session
+from ..models import Episode, Hotword, Job, Transcript, Utterance
 from ..schemas import HotwordIn, HotwordOut, HotwordPatch, JobOut
-from . import not_implemented
+from .deps import require_editor
 
 router = APIRouter(prefix="/hotwords", tags=["hotwords"])
 
 
 @router.get("", response_model=list[HotwordOut])
-def list_hotwords(session: Session = Depends(get_session)) -> list[HotwordOut]:
-    """TODO(T3)."""
-    raise not_implemented("hotword listing")
+def list_hotwords(
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> list[HotwordOut]:
+    return [
+        HotwordOut.model_validate(h)
+        for h in session.scalars(
+            select(Hotword).order_by(Hotword.weight.desc(), Hotword.term)
+        )
+    ]
 
 
 @router.post("", response_model=HotwordOut)
 def create_hotword(
-    body: HotwordIn, session: Session = Depends(get_session)
+    body: HotwordIn,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
 ) -> HotwordOut:
-    """TODO(T3): store the term exactly as typed — casing and diacritics included."""
-    raise not_implemented("hotword create")
+    """Store the term exactly as typed — casing and diacritics matter to the bpe match."""
+    existing = session.scalar(select(Hotword).where(Hotword.term == body.term))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="term already exists")
+    hotword = Hotword(term=body.term, weight=body.weight, note=body.note,
+                      active=body.active)
+    session.add(hotword)
+    session.commit()
+    return HotwordOut.model_validate(hotword)
 
 
 @router.patch("/{hotword_id}", response_model=HotwordOut)
 def patch_hotword(
-    hotword_id: int, body: HotwordPatch, session: Session = Depends(get_session)
+    hotword_id: int,
+    body: HotwordPatch,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
 ) -> HotwordOut:
-    """TODO(T3)."""
-    raise not_implemented("hotword update")
+    hotword = session.get(Hotword, hotword_id)
+    if hotword is None:
+        raise HTTPException(status_code=404, detail="hotword not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(hotword, field, value)
+    session.commit()
+    return HotwordOut.model_validate(hotword)
 
 
 @router.delete("/{hotword_id}")
-def delete_hotword(hotword_id: int, session: Session = Depends(get_session)) -> dict:
-    """TODO(T3): prefer ``active=false`` over a hard delete so old transcripts stay
-    explicable."""
-    raise not_implemented("hotword delete")
+def delete_hotword(
+    hotword_id: int,
+    hard: bool = False,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> dict:
+    """Deactivate by default; ``?hard=true`` really deletes.
+
+    Deactivating keeps old transcripts explicable: a transcript records the sha256 of
+    the hotwords file that produced it, and that is only meaningful while the terms are
+    still on record.
+    """
+    hotword = session.get(Hotword, hotword_id)
+    if hotword is None:
+        raise HTTPException(status_code=404, detail="hotword not found")
+    if hard:
+        session.delete(hotword)
+    else:
+        hotword.active = False
+    session.commit()
+    return {"ok": True, "deactivated": not hard}
 
 
 @router.post("/rerun-all", response_model=list[JobOut])
-def rerun_all(session: Session = Depends(get_session)) -> list[JobOut]:
+def rerun_all(
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> list[JobOut]:
     """Enqueue transcribe for every episode with no verified utterances (PLAN §9)."""
-    raise not_implemented("hotword re-run")
+    verified_episode_ids = select(Transcript.episode_id).join(
+        Utterance, Utterance.transcript_id == Transcript.id
+    ).where(Utterance.text_verified.is_not(None)).distinct()
+
+    episodes = list(session.scalars(
+        select(Episode)
+        .where(Episode.id.not_in(verified_episode_ids),
+               Episode.audio_path.is_not(None))
+        .order_by(Episode.created_at)
+    ))
+
+    jobs = []
+    for episode in episodes:
+        # Don't pile a second job onto an episode that is already waiting.
+        pending = session.scalar(
+            select(func.count()).select_from(Job)
+            .where(Job.episode_id == episode.id, Job.kind == "transcribe",
+                   Job.status.in_(("queued", "running")))
+        ) or 0
+        if pending:
+            continue
+        job = Job(episode_id=episode.id, kind="transcribe", status="queued",
+                  params={}, max_attempts=settings.worker_max_attempts)
+        session.add(job)
+        episode.status = "queued"
+        jobs.append(job)
+    session.commit()
+    return [JobOut.model_validate(j) for j in jobs]

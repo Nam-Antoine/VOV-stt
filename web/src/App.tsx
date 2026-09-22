@@ -1,10 +1,13 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
+import { api, ApiError } from './api/client'
 import Episode from './pages/Episode'
 import Episodes from './pages/Episodes'
 import Exports from './pages/Exports'
 import Hotwords from './pages/Hotwords'
 import Jobs from './pages/Jobs'
+import Login from './pages/Login'
 
 const NAV = [
   { to: '/episodes', label: 'Episodes' },
@@ -14,6 +17,32 @@ const NAV = [
 ]
 
 export default function App() {
+  const queryClient = useQueryClient()
+
+  // One probe decides whether the whole app is reachable. A 401 is a normal answer
+  // here, not an error worth retrying.
+  const session = useQuery({
+    queryKey: ['session'],
+    queryFn: () => api.me(),
+    retry: false,
+  })
+
+  if (session.isLoading) {
+    return <p className="p-8 text-slate-500">Loading…</p>
+  }
+
+  const signedIn = session.isSuccess
+  const unauthorised = session.error instanceof ApiError && session.error.status === 401
+
+  if (!signedIn && unauthorised) return <Login />
+  if (!signedIn) {
+    return (
+      <p className="p-8 text-rose-600">
+        Cannot reach the API. Is the stack up? (`make dev`)
+      </p>
+    )
+  }
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
@@ -34,6 +63,15 @@ export default function App() {
                 {label}
               </NavLink>
             ))}
+            <button
+              onClick={async () => {
+                await api.logout()
+                queryClient.clear()
+              }}
+              className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+            >
+              Sign out
+            </button>
           </nav>
         </div>
       </header>

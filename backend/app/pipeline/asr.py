@@ -41,6 +41,53 @@ def strip_marker(token: str) -> str:
     return token[1:] if is_word_start(token) else token
 
 
+def ensure_bpe_vocab(model_dir: str, cache_dir: str | None = None) -> str:
+    """Return a path to a text BPE vocab, generating it from ``bpe.model`` if needed.
+
+    PLAN §2 says to pass ``bpe_vocab=bpe.model`` for hotwords. sherpa-onnx 1.13.8 does
+    not accept the sentencepiece binary there — it wants a text file of
+    ``<piece> <score>`` per line and otherwise fails with "Each line in vocab should
+    contain two items". So we export one from the model.
+
+    This is a *format conversion of the tokenizer*, not of any transcript text, so it
+    carries no verbatim risk. The file is written next to the model when that directory
+    is writable, else into ``cache_dir`` — in the container ``models/`` is mounted
+    read-only on purpose.
+    """
+    model_path = Path(model_dir) / "bpe.model"
+    if not model_path.exists():
+        raise FileNotFoundError(f"{model_path} missing — run `make models`")
+
+    for candidate in (Path(model_dir) / "bpe.vocab",
+                      Path(cache_dir or model_dir) / "bpe.vocab"):
+        if candidate.exists():
+            return str(candidate)
+
+    import sentencepiece as spm
+
+    sp = spm.SentencePieceProcessor(model_file=str(model_path))
+    body = "".join(
+        f"{sp.id_to_piece(i)} {sp.get_score(i)}\n" for i in range(sp.get_piece_size())
+    )
+
+    for target in (Path(model_dir) / "bpe.vocab",
+                   Path(cache_dir) / "bpe.vocab" if cache_dir else None):
+        if target is None:
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+            log.info("wrote BPE vocab for hotwords: %s (%d pieces)",
+                     target, sp.get_piece_size())
+            return str(target)
+        except OSError:
+            continue  # read-only mount; try the cache dir
+    raise OSError(
+        f"could not write a BPE vocab into {model_dir!r} or {cache_dir!r}; "
+        "hotwords need one (see CLAUDE.md rule 5)"
+    )
+
+
 @dataclass(frozen=True)
 class AsrParams:
     """PLAN §2 author defaults. ``blank_penalty`` and decoding are swept in the pilot."""
@@ -56,6 +103,8 @@ class AsrParams:
     hotwords_file: str | None = None
     hotwords_score: float = 1.5
     epoch_tag: str = "epoch-20-avg-10"
+    #: Where a generated bpe.vocab may be written when model_dir is read-only.
+    vocab_cache_dir: str | None = None
 
     def model_files(self) -> dict[str, str]:
         sfx = ".int8.onnx" if self.int8 else ".onnx"
@@ -85,7 +134,8 @@ def load_recognizer(model_dir: str, *, int8: bool = True, threads: int = 3,
                     hotwords_file: str | None = None, hotwords_score: float = 1.5,
                     blank_penalty: float = 0.25,
                     decoding_method: str = "modified_beam_search",
-                    max_active_paths: int = 4, epoch_tag: str = "epoch-20-avg-10"):
+                    max_active_paths: int = 4, epoch_tag: str = "epoch-20-avg-10",
+                    vocab_cache_dir: str | None = None):
     """Build an ``OfflineRecognizer`` (PLAN §2.1, from the author's demo Space).
 
     Hotwords require ``modified_beam_search`` — greedy silently ignores them
@@ -114,7 +164,8 @@ def load_recognizer(model_dir: str, *, int8: bool = True, threads: int = 3,
                 f"(got {decoding_method!r}) — see CLAUDE.md rule 5"
             )
         kwargs.update(hotwords_file=hotwords_file, hotwords_score=hotwords_score,
-                      modeling_unit="bpe", bpe_vocab=f"{model_dir}/bpe.model")
+                      modeling_unit="bpe",
+                      bpe_vocab=ensure_bpe_vocab(model_dir, vocab_cache_dir))
     return sherpa_onnx.OfflineRecognizer.from_transducer(**kwargs)
 
 
@@ -125,6 +176,7 @@ def recognizer_from_params(params: AsrParams):
         hotwords_file=params.hotwords_file, hotwords_score=params.hotwords_score,
         blank_penalty=params.blank_penalty, decoding_method=params.decoding_method,
         max_active_paths=params.max_active_paths, epoch_tag=params.epoch_tag,
+        vocab_cache_dir=params.vocab_cache_dir,
     )
 
 

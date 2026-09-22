@@ -19,12 +19,16 @@ piece that writes rows from the raw JSON. The pipeline it will call
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import signal
 import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
 from .config import settings
@@ -67,6 +71,51 @@ REQUEUE_SQL = text(
 )
 
 
+HEARTBEAT_SQL = text(
+    """
+    INSERT INTO settings (key, value) VALUES ('worker_heartbeat', :value)
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+    """
+)
+
+
+REQUEUE_ORPHANS_SQL = text(
+    """
+    UPDATE jobs
+       SET status = 'queued', locked_at = NULL,
+           error = coalesce(error, 'requeued: worker restarted mid-job')
+     WHERE status = 'running'
+    RETURNING id;
+    """
+)
+
+
+def requeue_orphans(session) -> int:  # noqa: ANN001
+    """Re-queue jobs left 'running' by a worker that died.
+
+    CLAUDE.md rule 6: there is exactly one worker process. So at startup *any* row still
+    marked running is by definition orphaned — a deploy, an OOM kill or a crash left it
+    there, and nothing will ever finish it. Without this, a restart mid-episode silently
+    strands that episode in 'processing' forever.
+
+    Safe to re-run: the transcribe handler writes a new raw JSON per attempt and never
+    edits an existing one (PLAN §0.2).
+    """
+    ids = session.execute(REQUEUE_ORPHANS_SQL).scalars().all()
+    if ids:
+        session.execute(
+            text("UPDATE episodes SET status = 'queued' "
+                 "WHERE status = 'processing'")
+        )
+        log.warning("re-queued %d job(s) orphaned by a previous worker", len(ids))
+    return len(ids)
+
+
+def beat(session) -> None:  # noqa: ANN001
+    """Record that the worker is alive, for ``/api/health`` (PLAN §11 T5)."""
+    session.execute(HEARTBEAT_SQL, {"value": json.dumps({"at": time.time()})})
+
+
 class Stopping(Exception):
     """Raised by the SIGTERM handler so a poll sleep unwinds cleanly."""
 
@@ -90,34 +139,132 @@ def claim_job(session) -> dict[str, Any] | None:  # noqa: ANN001
 def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
     """Run the pipeline for one episode and load the results into the DB.
 
-    TODO(T3), in this order:
-
-    1. Load the episode; resolve its audio path.
-    2. Render active hotwords to ``/data/models/hotwords.txt`` via
-       :mod:`app.pipeline.hotwords`, keeping the sha256.
-    3. Call :func:`app.pipeline.run.transcribe` with the settings' params.
-    4. Write the raw JSON to ``/data/raw/<episode>/<transcript_id>.json`` — **once**,
-       never overwriting (PLAN §0.2).
-    5. Insert the ``transcripts`` row, flip the previous one's ``is_current`` to false.
-    6. Bulk-insert ``words`` and ``utterances`` (``text_asr`` frozen from the JSON,
-       ``text_verified`` left NULL).
-    7. Upsert ``speakers`` rows for the clusters that appeared.
-    8. Set ``episodes.status = 'transcribed'``.
-
-    Existing verified utterances from an earlier transcript are **not** migrated or
-    overwritten: a new run is a new transcript row, and the human layer stays attached
-    to the run it was made against.
+    The raw JSON is written **once**, before any row is inserted: if the DB load fails
+    the master record still exists on disk and can be replayed (PLAN §0.2). Existing
+    verified utterances from an earlier transcript are neither migrated nor overwritten
+    — a new run is a new transcript row, and the human layer stays attached to the run
+    it was made against.
     """
-    raise NotImplementedError("T3: transcribe job handler")
+    import uuid as _uuid
+
+    from . import loader
+    from .models import Episode, Hotword
+    from .pipeline import hotwords as hotwords_mod
+    from .pipeline import run as run_mod
+
+    episode = session.get(Episode, job["episode_id"])
+    if episode is None:
+        raise ValueError(f"job {job['id']} has no episode")
+    if not episode.audio_path or not Path(episode.audio_path).exists():
+        raise FileNotFoundError(
+            f"episode {episode.slug}: audio missing at {episode.audio_path!r}"
+        )
+
+    params = dict(job.get("params") or {})
+    episode.status = "processing"
+    session.flush()
+    session.commit()
+
+    # --- hotwords: render the active terms to a file the recognizer can load ---
+    hotwords_file = None
+    hotwords_sha = None
+    if params.get("hotwords", True):
+        terms = list(session.scalars(
+            select(Hotword.term)
+            .where(Hotword.active.is_(True))
+            .order_by(Hotword.weight.desc(), Hotword.id)
+        ))
+        rendered = hotwords_mod.write(terms, settings.hotwords_file)
+        if rendered.enabled:
+            hotwords_file = str(rendered.path)
+            hotwords_sha = rendered.sha256
+            log.info("hotwords: %d terms (sha %s)", rendered.count, hotwords_sha[:12])
+
+    asr_params = settings.asr_params(hotwords_file=hotwords_file)
+    if params.get("blank_penalty") is not None:
+        asr_params = replace(asr_params, blank_penalty=float(params["blank_penalty"]))
+    if params.get("decoding_method"):
+        asr_params = replace(asr_params, decoding_method=str(params["decoding_method"]))
+
+    vad_params = settings.vad_params()
+    if params.get("vad_threshold") is not None:
+        vad_params = replace(vad_params, threshold=float(params["vad_threshold"]))
+
+    diar_params = None
+    if params.get("diarize", settings.diarize_by_default):
+        diar_params = settings.diar_params()
+        if params.get("diar_threshold") is not None:
+            diar_params = replace(diar_params, threshold=float(params["diar_threshold"]))
+    else:
+        log.info("diarization disabled for this job; every word gets speaker -1")
+
+    transcript_id = _uuid.uuid4()
+    out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
+
+    log.info("transcribing %s -> %s", episode.slug, out_path)
+    doc = run_mod.transcribe(
+        Path(episode.audio_path),
+        work_dir=settings.audio_dir,
+        asr_params=asr_params,
+        vad_params=vad_params,
+        diar_params=diar_params,
+        source_url=episode.source_url,
+        episode_id=str(episode.id),
+        hotwords_sha256=hotwords_sha,
+    )
+    run_mod.write_raw_json(doc, out_path)
+
+    loader.load_transcript(
+        session,
+        episode=episode,
+        doc=doc,
+        raw_json_path=out_path,
+        transcript_id=transcript_id,
+        hotwords_sha256=hotwords_sha,
+    )
+
+    audio_block = doc.get("audio") or {}
+    if audio_block.get("duration_s"):
+        episode.duration_s = float(audio_block["duration_s"])
+    episode.status = "transcribed"
+    session.flush()
+
+    timing = doc.get("timing") or {}
+    return (
+        f"{len(doc.get('words') or [])} words, "
+        f"{len(doc.get('utterances') or [])} utterances, "
+        f"rtf {timing.get('realtime_factor')}x, "
+        f"peak rss {timing.get('peak_rss_mb')} MB -> {out_path}"
+    )
 
 
 def handle_export(session, job: dict) -> str:  # noqa: ANN001
     """Regenerate every export for one episode into ``/data/exports``.
 
-    TODO(T3): call the renderers in :mod:`app.exports`; they are already written and
-    tested.
+    Always rebuilt from the raw JSON plus the verified layer — never from a previous
+    export, which would let a stale file drift into being the source of truth (§0.2).
     """
-    raise NotImplementedError("T3: export job handler")
+    from . import loader
+    from .exports import __main__ as exports_main
+    from .models import Episode
+
+    episode = session.get(Episode, job["episode_id"])
+    if episode is None:
+        raise ValueError(f"job {job['id']} has no episode")
+
+    transcript = loader.current_transcript(session, episode.id)
+    if transcript is None:
+        raise ValueError(f"episode {episode.slug} has no transcript to export")
+
+    doc = json.loads(Path(transcript.raw_json_path).read_text(encoding="utf-8"))
+    written = exports_main.render_all(
+        doc,
+        settings.exports_dir / episode.slug,
+        episode.slug,
+        speakers=loader.speaker_labels(session, episode.id),
+        overrides=loader.overrides_for(session, transcript.id),
+    )
+    return f"{len(written)} exports -> {settings.exports_dir / episode.slug}"
 
 
 HANDLERS = {"transcribe": handle_transcribe, "export": handle_export}
@@ -126,6 +273,7 @@ HANDLERS = {"transcribe": handle_transcribe, "export": handle_export}
 def run_once() -> bool:
     """Claim and run at most one job. Returns True if a job was handled."""
     with session_scope() as session:
+        beat(session)
         job = claim_job(session)
         if job is None:
             return False
@@ -167,6 +315,16 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     settings.ensure_dirs()
+    try:
+        with session_scope() as session:
+            requeue_orphans(session)
+    except Exception as exc:  # noqa: BLE001 — schema may not exist yet on first boot
+        log.debug("orphan sweep skipped: %s", exc)
+    if settings.worker_nice:
+        try:
+            os.nice(settings.worker_nice)
+        except OSError as exc:  # pragma: no cover — container may forbid it
+            log.warning("could not renice worker: %s", exc)
     log.info("worker up; polling every %.1fs", settings.worker_poll_interval_s)
 
     consecutive_errors = 0

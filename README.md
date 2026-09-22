@@ -17,11 +17,31 @@ rules any contributor (human or model) has to work under.
 |---|---|
 | T0 — scaffold, compose, models downloader | done |
 | T1 — pipeline runnable end-to-end, unit tests | done |
-| **T2 — pilot gate** | **not started; needs owner sign-off before T3** |
-| T3–T5 — backend handlers, frontend, deploy | skeletons only |
+| **T2 — pilot gate** | **not run — see `pilot/RESULTS.md`; the supplied reference is not verbatim** |
+| T3 — backend handlers, worker, exports | done |
+| T4 — frontend (upload → transcript → export) | done |
+| T5 — deploy, backfill | partial: compose stack runs; no nightly backup yet |
 
-The API handlers, the worker's job handlers and the UI pages are deliberate stubs: T2 is
-a gate, and PLAN §11 says no web code before it passes.
+> **T3/T4 were built before T2 passed.** CLAUDE.md rule 10 forbids that. It was done on
+> the owner's explicit written instruction (22 Sep 2026) to deliver a working upload →
+> transcript web app. The gate is *not* waived: `pilot/RESULTS.md` records why it still
+> cannot be scored as PLAN §4.2 specifies, and no claim is made here about filler recall.
+
+## What works end to end
+
+Upload audio in the browser → it is hashed and stored → a queued job transcribes it on
+one worker → the transcript appears with speaker chips, click-a-word-to-play, and inline
+editing → export as `.docx`, `.txt`, `.csv`, `.srt`, `.eaf`, raw or verified JSON.
+
+Measured on a real 14-minute VOV episode (846 s), 4 vCPU shared box:
+
+| | |
+|---|---|
+| words / utterances | 3426 / 31 |
+| speaker clusters | 11 |
+| VAD coverage | 98 % of duration |
+| total | **5.1× realtime** (ASR alone ~26×; diarization is the slow stage) |
+| peak RSS | **861 MB** (T1 budget: 2 GB) |
 
 ## Quick start
 
@@ -44,12 +64,17 @@ That prints the realtime factor and peak RSS, and writes the PLAN §5 raw JSON.
 
 ## Export formats
 
-Per episode: raw `.json`, `verified.json`, ELAN `.eaf`, plain `.txt`, word-level `.csv`,
-`.srt` (PLAN §1.5) — plus `exports/corpus.zip` for the whole corpus.
+Per episode: `.docx`, plain `.txt`, raw `.json`, `verified.json`, ELAN `.eaf`,
+word-level `.csv`, `.srt` — plus `exports/corpus.zip` for the whole corpus
+(`?tier=verified|all`).
 
-> The repository description mentions **docx or pdf**. Those are not in PLAN.md §1.5 and
-> are not implemented. `.txt` and `.csv` are the formats intended for hand-off to a word
-> processor; say so if a real `.docx` deliverable is needed and it can be added.
+`.docx` is **not** in PLAN §1.5. It was added because the client's reference deliverable
+(`resource/docs/*.docx`) is a Word document: speaker heading, then one paragraph per
+utterance. It is a *layout* only — the text inside is the same bytes every other export
+carries, and `test_no_normalisation.py` holds it to that like the rest.
+
+Every export is regenerated from the raw JSON plus the verified layer. Nothing is cached
+and then allowed to drift (PLAN §0.2).
 
 ## Layout
 
