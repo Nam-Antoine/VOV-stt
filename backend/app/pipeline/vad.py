@@ -48,7 +48,7 @@ class VadParams:
         }
 
 
-def build_vad(params: VadParams, *, buffer_size_s: float = 60.0):
+def build_vad(params: VadParams, *, buffer_size_s: float | None = None):
     """Construct a ``sherpa_onnx.VoiceActivityDetector``.
 
     Imported lazily so that the pure-python parts of the pipeline (and the unit tests)
@@ -61,14 +61,18 @@ def build_vad(params: VadParams, *, buffer_size_s: float = 60.0):
     cfg.silero_vad.threshold = params.threshold
     cfg.silero_vad.min_speech_duration = params.min_speech_s
     cfg.silero_vad.min_silence_duration = params.min_silence_s
-    # Let the hard-split below own the length cap so the split point is energy-aware.
-    cfg.silero_vad.max_speech_duration = float(params.max_segment_s)
+    # Silero's own cap is deliberately loose: it cuts at a fixed length, whereas
+    # `hard_split` cuts at the quietest frame. Leave the real capping to hard_split and
+    # only use this as a backstop that keeps a segment inside the VAD's ring buffer.
+    cfg.silero_vad.max_speech_duration = float(params.max_segment_s) * 2.0
     cfg.sample_rate = params.sample_rate
     cfg.num_threads = params.num_threads
     cfg.provider = "cpu"
     if not cfg.validate():
         raise RuntimeError(f"invalid VAD config (model={params.model!r})")
-    return sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=buffer_size_s)
+    # The ring buffer must hold the longest segment Silero will emit, plus headroom.
+    buffer_s = buffer_size_s or max(60.0, params.max_segment_s * 3.0)
+    return sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=buffer_s)
 
 
 def raw_segments(samples: np.ndarray, params: VadParams,
