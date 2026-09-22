@@ -24,7 +24,7 @@ import resource
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import asr as asr_mod
@@ -141,7 +141,7 @@ def transcribe(
             for w in words
         ],
         "utterances": utterances,
-        "created_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "created_at": datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
         "timing": {
             "stages_s": {k: round(v, 2) for k, v in watch.stages.items()},
             "total_s": round(watch.total_s, 2),

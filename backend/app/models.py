@@ -73,13 +73,13 @@ class Episode(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    transcripts: Mapped[list["Transcript"]] = relationship(
+    transcripts: Mapped[list[Transcript]] = relationship(
         back_populates="episode", cascade="all, delete-orphan"
     )
-    jobs: Mapped[list["Job"]] = relationship(
+    jobs: Mapped[list[Job]] = relationship(
         back_populates="episode", cascade="all, delete-orphan"
     )
-    speakers: Mapped[list["Speaker"]] = relationship(
+    speakers: Mapped[list[Speaker]] = relationship(
         back_populates="episode", cascade="all, delete-orphan"
     )
 
@@ -143,10 +143,10 @@ class Transcript(Base):
     )
 
     episode: Mapped[Episode] = relationship(back_populates="transcripts")
-    words: Mapped[list["Word"]] = relationship(
+    words: Mapped[list[Word]] = relationship(
         back_populates="transcript", cascade="all, delete-orphan"
     )
-    utterances: Mapped[list["Utterance"]] = relationship(
+    utterances: Mapped[list[Utterance]] = relationship(
         back_populates="transcript", cascade="all, delete-orphan"
     )
 
@@ -210,7 +210,7 @@ class Utterance(Base):
     )
 
     transcript: Mapped[Transcript] = relationship(back_populates="utterances")
-    edits: Mapped[list["UtteranceEdit"]] = relationship(
+    edits: Mapped[list[UtteranceEdit]] = relationship(
         back_populates="utterance", cascade="all, delete-orphan"
     )
 

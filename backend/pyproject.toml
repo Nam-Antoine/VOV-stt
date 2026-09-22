@@ -58,7 +58,14 @@ select = ["E", "F", "W", "I", "UP", "B", "C4"]
 ignore = [
     "E701",   # PLAN §2.2 reference code uses one-line `if cur: ...`; kept verbatim
     "E702",
+    "B008",   # `x = Depends(...)` in a signature is the FastAPI idiom, not a bug
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"app/pipeline/asr.py" = ["E501"]   # §2.2 reference code kept as written
+# PLAN §2.2 reference code is kept exactly as the plan wrote it, including its
+# one-line `if cur:`, its dict() call and its unstrict zip(). Rewriting it to suit
+# the linter would make it impossible to diff against the plan.
+"app/pipeline/asr.py" = ["E501", "C408", "B905"]
+# Raw OOXML: the long lines are w3c/openxmlformats namespace URIs inside string
+# literals. They cannot be wrapped without corrupting the document.
+"app/exports/docx.py" = ["E501"]

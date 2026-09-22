@@ -9,7 +9,7 @@ byte**. No trimming, no smart quotes, no sentence casing, no spell correction
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
@@ -59,7 +59,7 @@ def patch_utterance(
         if before != after:
             utterance.text_verified = after
             utterance.verified_by = editor
-            utterance.verified_at = datetime.now(timezone.utc)
+            utterance.verified_at = datetime.now(UTC)
             _log_edit(session, utterance, before, after, editor)
 
     if "speaker" in patch and patch["speaker"] is not None:
@@ -165,12 +165,13 @@ def merge_next(
     before = utterance.text_verified
     utterance.text_asr = f"{utterance.text_asr} {nxt.text_asr}"
     if utterance.text_verified is not None or nxt.text_verified is not None:
-        left = utterance.text_verified if utterance.text_verified is not None else utterance.text_asr
+        left = (utterance.text_verified if utterance.text_verified is not None
+                else utterance.text_asr)
         right = nxt.text_verified if nxt.text_verified is not None else nxt.text_asr
         utterance.text_verified = f"{left} {right}"
         _log_edit(session, utterance, before, utterance.text_verified, editor)
         utterance.verified_by = editor
-        utterance.verified_at = datetime.now(timezone.utc)
+        utterance.verified_at = datetime.now(UTC)
     utterance.end_s = nxt.end_s
     utterance.flags = list({*(utterance.flags or []), *(nxt.flags or [])})
 

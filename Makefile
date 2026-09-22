@@ -77,8 +77,10 @@ test: test-backend ## Run all tests
 test-backend: ## Backend unit tests
 	cd $(BACKEND) && $(PY) -m pytest -q app/tests
 
-lint: ## Ruff check (if installed)
-	cd $(BACKEND) && $(PY) -m ruff check app || echo "ruff not installed — skipped"
+lint: ## Ruff check (skipped only when ruff is absent; a real failure fails)
+	@cd $(BACKEND) && if $(PY) -c "import ruff" 2>/dev/null; then \
+	  $(PY) -m ruff check app; \
+	else echo "ruff not installed — skipped (CI runs it)"; fi
 
 fmt: ## Ruff format
 	cd $(BACKEND) && $(PY) -m ruff format app

@@ -18,7 +18,7 @@ accepts both, and :func:`tokens_to_words` is otherwise the plan's algorithm unch
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 
 log = logging.getLogger(__name__)

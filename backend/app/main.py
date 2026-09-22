@@ -18,7 +18,14 @@ from sqlalchemy import text
 
 from . import __version__
 from .api import (
-    auth, episodes, exports, hotwords, jobs, speakers, transcripts, utterances,
+    auth,
+    episodes,
+    exports,
+    hotwords,
+    jobs,
+    speakers,
+    transcripts,
+    utterances,
 )
 from .config import settings
 from .db import engine

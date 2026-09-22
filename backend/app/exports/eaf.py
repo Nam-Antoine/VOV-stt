@@ -19,7 +19,7 @@ encoding, not normalisation — the parsed value round-trips identically, which 
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import TIER_ASR, speaker_label, utterance_text
@@ -65,7 +65,7 @@ def build(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
         "ANNOTATION_DOCUMENT",
         {
             "AUTHOR": author,
-            "DATE": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "DATE": datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
             "FORMAT": EAF_VERSION,
             "VERSION": EAF_VERSION,
             "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",

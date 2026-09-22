@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import TIER_VERIFIED, utterance_text
@@ -49,7 +49,7 @@ def build(doc: dict, *, overrides: dict | None = None, speakers: dict | None = N
     out["verification"] = {
         "utterances_total": len(out.get("utterances", [])),
         "utterances_verified": n_verified,
-        "exported_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "exported_at": datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
     }
     return out
 

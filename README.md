@@ -1,5 +1,7 @@
 # VOV-stt — vn-stt-corpus
 
+[![CI](https://github.com/Ter-namtran/VOV-stt/actions/workflows/ci.yml/badge.svg)](https://github.com/Ter-namtran/VOV-stt/actions/workflows/ci.yml)
+
 A self-hosted verbatim speech corpus for VOV2 *Đàn bà 30+*. CPU-only ASR pipeline,
 Postgres, FastAPI, React. See **PLAN.md** for the full design and **CLAUDE.md** for the
 rules any contributor (human or model) has to work under.
@@ -43,6 +45,26 @@ Measured on a real 14-minute VOV episode (846 s), 4 vCPU shared box:
 | total | **5.1× realtime** (ASR alone ~26×; diarization is the slow stage) |
 | peak RSS | **861 MB** (T1 budget: 2 GB) |
 
+## CPU budget — deviation from CLAUDE.md rule 6
+
+Rule 6 specifies `num_threads=3`. This box runs the `tleducation` stack alongside this
+one and was sitting at load ~11 on 4 vCPU, so on the owner's instruction (22 Sep 2026,
+*"it takes so much of the CPU … reduce the load"*) the knobs are now:
+
+| Knob | Rule 6 | Here | Where |
+|---|---|---|---|
+| ASR threads | 3 | **2** | `ASR_NUM_THREADS` |
+| Diarization threads | 3 | **2** | `DIAR_NUM_THREADS` |
+| `OMP_NUM_THREADS` | 3 | **2** | `docker-compose.yml` |
+| worker CPU cap | — | **2.5** | `docker-compose.yml` |
+| worker `nice` | — | **10** | `WORKER_NICE` |
+| diarization | always | **per-job toggle** | `DIARIZE_BY_DEFAULT` |
+
+Still one worker process and no parallel episodes — that half of rule 6 is untouched.
+Diarization is the expensive stage; turning it off roughly halves CPU time per episode
+at the cost of speaker labels. Restore the rule-6 values by setting the three thread
+counts back to 3 and dropping the `cpus` cap.
+
 ## Quick start
 
 ```bash
@@ -75,6 +97,47 @@ carries, and `test_no_normalisation.py` holds it to that like the rest.
 
 Every export is regenerated from the raw JSON plus the verified layer. Nothing is cached
 and then allowed to drift (PLAN §0.2).
+
+## CI / CD
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job | What it guards |
+|---|---|
+| **Verbatim gate** | `test_no_normalisation.py`, plus a grep that fails the build if an LLM client package ever lands in `backend/pyproject.toml` (CLAUDE.md rule 7) |
+| Backend | `ruff check` + the full pytest suite with coverage |
+| Migrations | `alembic upgrade head` against a real Postgres 16, then `downgrade base` and up again, then asserts the §8 hotword seed is present |
+| Frontend | `tsc --noEmit` + `vite build`, uploads `web/dist` |
+| Images | builds `backend/Dockerfile` and validates `docker compose config` |
+
+The verbatim gate is a separate job on purpose. PLAN §0.1 is a correctness property of
+the corpus, not a style rule, so it should be readable as pass/fail on its own line and
+set as a required check on `main`.
+
+`.github/workflows/deploy.yml` deploys to the VPS after CI goes green on `main`, or on
+demand. It pulls, rebuilds, migrates, then polls `/api/health` until the API, the DB, all
+six model files *and* the worker heartbeat are good — an API that answers while the worker
+is dead would queue jobs forever. On failure it rolls the code back to the previous commit.
+
+It is pull-based rather than a registry push so the ~64 MB model cache and the `/data`
+volume survive every release untouched (PLAN §0.2).
+
+**Before the first deploy**, add these repository secrets
+(*Settings → Secrets and variables → Actions*):
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | the VPS address |
+| `DEPLOY_USER` | ssh user |
+| `DEPLOY_SSH_KEY` | private key (PEM) whose public half is in the box's `authorized_keys` |
+| `DEPLOY_PATH` | checkout path on the box, e.g. `/ternary/vov-stt` |
+| `DEPLOY_PORT` | optional, defaults to 22 |
+| `HEALTH_URL` | optional, defaults to `http://localhost:8080/api/health` |
+
+The deploy job targets a `production` environment, so you can require a manual approval
+on it in the repo settings. Schema **downgrades are never automated**: migration `0001`
+drops every table, which would destroy the corpus, so a rollback restores code only and
+says so in the log.
 
 ## Layout
 

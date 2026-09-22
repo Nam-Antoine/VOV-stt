@@ -23,7 +23,7 @@ symmetric.
 from __future__ import annotations
 
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -117,7 +117,7 @@ def build_document_xml(doc: dict, *, tier: str = TIER_ASR,
 
 
 def _core_xml(title: str) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<cp:coreProperties '

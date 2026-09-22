@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.exports import TIER_ASR, TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
+from app.exports import TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
 from app.pipeline import merge as merge_mod
 from app.pipeline.asr import tokens_to_words
 from app.pipeline.run import write_raw_json
