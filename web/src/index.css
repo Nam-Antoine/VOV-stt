@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-transcript antialiased;
+}
+
+/* PLAN §10: the editor must never auto-correct. These attributes are set on the
+   elements too; this is the belt to that pair of braces. */
+[contenteditable] {
+  -webkit-user-modify: read-write-plaintext-only;
+}
+
+/* Words below the confidence percentile (PLAN §10 "Show confidence"). */
+.word-low-conf {
+  @apply underline decoration-dotted decoration-rose-400 underline-offset-4;
+}

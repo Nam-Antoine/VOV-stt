@@ -1,0 +1,102 @@
+"""Idempotent seed data — ``make seed`` / ``python -m app.seed``.
+
+The initial migration already seeds hotwords; this module exists so the list can be
+topped up later without a new migration, and so the pilot's chosen knobs (PLAN §11 T2)
+can be written into ``settings``.
+
+Nothing here overwrites an operator's edits: terms are inserted ``ON CONFLICT DO
+NOTHING``, and settings are only written when a key is absent unless ``--force``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from .db import session_scope
+from .models import Hotword, Setting
+
+log = logging.getLogger("seed")
+
+# Kept in step with alembic/versions/0001_initial.py:HOTWORD_SEED (PLAN §8).
+HOTWORD_SEED: list[tuple[str, float, str]] = [
+    ("Đàn bà 30+", 1.5, "programme name"),
+    ("VOV2", 1.5, "station"),
+    ("Thanh Huyền", 1.5, "MC"),
+    ("Di Li", 1.5, "guest — nhà văn"),
+    ("Hoàng Anh Tú", 1.5, "recurring guest"),
+    ("Đỗ Anh Vũ", 1.5, "recurring guest"),
+    ("quản chồng", 1.0, "recurring topic"),
+    ("giữ chồng", 1.0, "recurring topic"),
+    ("giữ lửa", 1.0, "recurring topic"),
+    ("ngoại tình", 1.0, "recurring topic"),
+    ("tâm sự", 1.0, "recurring topic"),
+    ("hôn nhân", 1.0, "recurring topic"),
+    ("chung thủy", 1.0, "recurring topic"),
+    ("ly hôn", 1.0, "recurring topic"),
+    ("gia đình", 1.0, "recurring topic"),
+]
+
+#: Pipeline defaults. The pilot (PLAN §4.3) replaces these with measured choices; until
+#: T2 signs off they are PLAN §2/§3 values, not tuned ones.
+SETTINGS_SEED: dict[str, dict] = {
+    "asr": {
+        "decoding_method": "modified_beam_search",
+        "max_active_paths": 4,
+        "blank_penalty": 0.25,
+        "int8": True,
+        "num_threads": 3,
+        "_source": "PLAN §2 defaults — not yet confirmed by the pilot (T2)",
+    },
+    "vad": {
+        "threshold": 0.3, "min_speech_s": 0.1, "min_silence_s": 0.4,
+        "pad_s": 0.35, "merge_gap_s": 0.3, "max_segment_s": 25.0,
+        "_source": "PLAN §3 defaults",
+    },
+    "diarization": {
+        "threshold": 0.7, "num_clusters": 0,
+        "min_duration_on": 0.3, "min_duration_off": 0.5,
+        "_source": "PLAN §3 defaults",
+    },
+}
+
+
+def seed_hotwords(session, *, terms=HOTWORD_SEED) -> int:  # noqa: ANN001
+    stmt = pg_insert(Hotword).values([
+        {"term": term, "weight": weight, "note": note, "active": True}
+        for term, weight, note in terms
+    ]).on_conflict_do_nothing(index_elements=["term"])
+    return session.execute(stmt).rowcount or 0
+
+
+def seed_settings(session, *, force: bool = False) -> int:  # noqa: ANN001
+    written = 0
+    for key, value in SETTINGS_SEED.items():
+        stmt = pg_insert(Setting).values(key=key, value=value)
+        stmt = (
+            stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
+            if force
+            else stmt.on_conflict_do_nothing(index_elements=["key"])
+        )
+        written += session.execute(stmt).rowcount or 0
+    return written
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--force-settings", action="store_true",
+                    help="overwrite existing settings rows with the defaults")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level="INFO", format="%(levelname)-7s %(message)s")
+
+    with session_scope() as session:
+        n_hot = seed_hotwords(session)
+        n_set = seed_settings(session, force=args.force_settings)
+    log.info("seeded %d hotwords, %d settings rows", n_hot, n_set)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

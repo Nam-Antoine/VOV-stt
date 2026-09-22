@@ -1,0 +1,8 @@
+Alembic migrations for the PLAN §8 schema.
+
+    make migrate                 # alembic upgrade head, inside the api container
+    make revision M="add foo"    # autogenerate against app/models.py
+
+0001_initial creates every table in §8 and seeds the hotwords list from §8. The seed is
+idempotent (ON CONFLICT DO NOTHING) so re-running a migration on a live DB never
+duplicates or resets an operator's edits.

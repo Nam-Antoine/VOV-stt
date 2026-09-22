@@ -1,0 +1,43 @@
+# --- models: downloaded, never committed (PLAN §7; CC BY-NC-ND, see LICENSE-NOTICE.md)
+/models/*
+!/models/.gitkeep
+!/models/MANIFEST.json
+
+# --- runtime data: audio, the immutable raw JSON, exports (PLAN §6)
+/data/
+
+# --- pilot material: episode audio is client material; vox-pop voices are private
+#     individuals (PLAN §0.3)
+/pilot/clip_2min.wav
+/pilot/*.wav
+/pilot/*.mp3
+/pilot/*.docx
+/pilot/out/
+
+# --- python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- node / vite
+node_modules/
+/web/dist/
+/web/.vite/
+*.tsbuildinfo
+
+# --- env and secrets
+.env
+.env.*
+!.env.example
+
+# --- editors / os
+.DS_Store
+.idea/
+.vscode/
+*.swp

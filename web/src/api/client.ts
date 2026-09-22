@@ -1,0 +1,135 @@
+// Typed API client (PLAN §7, §9). Cookie auth — every request sends credentials.
+// TODO(T4): generate from /api/openapi.json once the T3 handlers exist.
+
+import type {
+  Episode,
+  EpisodeDetail,
+  Health,
+  Hotword,
+  Job,
+  Stats,
+  Transcript,
+  Utterance,
+} from './types'
+
+const BASE = '/api'
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+  ) {
+    super(`${status}: ${detail}`)
+    this.name = 'ApiError'
+  }
+
+  /** True while an endpoint is still a T3 stub, so the UI can say so plainly. */
+  get notImplemented(): boolean {
+    return this.status === 501
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    headers:
+      init.body instanceof FormData
+        ? undefined
+        : { 'Content-Type': 'application/json', ...init.headers },
+    ...init,
+  })
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      detail = (await response.json()).detail ?? detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(response.status, detail)
+  }
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+const body = (value: unknown) => JSON.stringify(value)
+
+export const api = {
+  // --- ops ---------------------------------------------------------------
+  health: () => request<Health>('/health'),
+  stats: () => request<Stats>('/stats'),
+
+  // --- auth --------------------------------------------------------------
+  login: (password: string) =>
+    request<{ ok: boolean }>('/auth/login', { method: 'POST', body: body({ password }) }),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+
+  // --- episodes ----------------------------------------------------------
+  listEpisodes: (params: { status?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v) as [string, string][],
+    )
+    return request<Episode[]>(`/episodes${qs.toString() ? `?${qs}` : ''}`)
+  },
+  getEpisode: (id: string) => request<EpisodeDetail>(`/episodes/${id}`),
+  uploadEpisode: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<Episode>('/episodes/upload', { method: 'POST', body: form })
+  },
+  episodeFromUrl: (payload: { url: string; title?: string; air_date?: string }) =>
+    request<Episode>('/episodes/from-url', { method: 'POST', body: body(payload) }),
+  transcribe: (id: string, params: Record<string, unknown> = {}) =>
+    request<Job>(`/episodes/${id}/transcribe`, { method: 'POST', body: body(params) }),
+  deleteEpisode: (id: string) => request<void>(`/episodes/${id}`, { method: 'DELETE' }),
+  setSpeakerLabel: (episodeId: string, cluster: number, label: string) =>
+    request<{ label: string }>(`/episodes/${episodeId}/speakers/${cluster}`, {
+      method: 'PUT',
+      body: body({ label }),
+    }),
+
+  // --- jobs --------------------------------------------------------------
+  listJobs: (status?: string) =>
+    request<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
+  retryJob: (id: string) => request<Job>(`/jobs/${id}/retry`, { method: 'POST' }),
+  jobLog: (id: string) => request<{ id: string; log: string }>(`/jobs/${id}/log`),
+
+  // --- transcripts -------------------------------------------------------
+  getTranscript: (id: string) => request<Transcript>(`/transcripts/${id}`),
+  rawJsonUrl: (id: string) => `${BASE}/transcripts/${id}/raw`,
+  audioUrl: (id: string) => `${BASE}/transcripts/${id}/audio`,
+
+  // --- utterances --------------------------------------------------------
+  // The payload is sent exactly as typed. No trim(), no normalisation — CLAUDE.md
+  // rule 1 applies on this side of the wire too.
+  patchUtterance: (
+    id: string,
+    patch: Partial<Pick<Utterance, 'text_verified' | 'speaker' | 'flags'>> & {
+      start_s?: number
+      end_s?: number
+    },
+  ) => request<Utterance>(`/utterances/${id}`, { method: 'PATCH', body: body(patch) }),
+  splitUtterance: (id: string, atWordI: number) =>
+    request<Utterance[]>(`/utterances/${id}/split`, {
+      method: 'POST',
+      body: body({ at_word_i: atWordI }),
+    }),
+  mergeNext: (id: string) =>
+    request<Utterance>(`/utterances/${id}/merge-next`, { method: 'POST' }),
+  revertUtterance: (id: string) =>
+    request<Utterance>(`/utterances/${id}/revert`, { method: 'POST' }),
+
+  // --- hotwords ----------------------------------------------------------
+  listHotwords: () => request<Hotword[]>('/hotwords'),
+  createHotword: (payload: { term: string; weight?: number; note?: string }) =>
+    request<Hotword>('/hotwords', { method: 'POST', body: body(payload) }),
+  patchHotword: (id: number, patch: Partial<Hotword>) =>
+    request<Hotword>(`/hotwords/${id}`, { method: 'PATCH', body: body(patch) }),
+  deleteHotword: (id: number) => request<void>(`/hotwords/${id}`, { method: 'DELETE' }),
+  rerunAll: () => request<Job[]>('/hotwords/rerun-all', { method: 'POST' }),
+
+  // --- exports -----------------------------------------------------------
+  exportUrl: (episodeId: string, fmt: string) =>
+    `${BASE}/episodes/${episodeId}/export.${fmt}`,
+  corpusZipUrl: (tier: 'verified' | 'all' = 'verified') =>
+    `${BASE}/exports/corpus.zip?tier=${tier}`,
+}
