@@ -106,7 +106,14 @@ pilot: ## Sweep §4.3 knobs and write pilot/RESULTS.md
 # Pipeline on one file, no web stack (PLAN §11 T1)
 # ---------------------------------------------------------------------------
 run: ## Transcribe one file: make run AUDIO=x.mp3 OUT=x.json
-	cd $(BACKEND) && $(PY) -m app.pipeline.run --audio "$(abspath $(AUDIO))" --out "$(abspath $(OUT))"
+	@test -n "$(AUDIO)" -a -n "$(OUT)" || { \
+	  echo "usage: make run AUDIO=x.mp3 OUT=x.json"; exit 1; }
+	# --models is explicit: the default resolves relative to $(BACKEND), and the
+	# models live at the repo root.
+	cd $(BACKEND) && $(PY) -m app.pipeline.run \
+	  --audio "$(abspath $(AUDIO))" \
+	  --out "$(abspath $(OUT))" \
+	  --models "$(abspath models)"
 
 # ---------------------------------------------------------------------------
 # Demo fixture for the Episode screen (web/public/demo, gitignored).
