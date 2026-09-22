@@ -25,6 +25,7 @@ import time
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from .config import settings
 from .db import session_scope
@@ -168,14 +169,32 @@ def main() -> int:
     settings.ensure_dirs()
     log.info("worker up; polling every %.1fs", settings.worker_poll_interval_s)
 
+    consecutive_errors = 0
     while not _stop:
         try:
             worked = run_once()
+            consecutive_errors = 0
+        except ProgrammingError as exc:
+            # Almost always "relation \"jobs\" does not exist": the stack came up
+            # before `alembic upgrade head`. One line, not a traceback every 2 s.
+            consecutive_errors += 1
+            if consecutive_errors == 1:
+                log.warning(
+                    "database schema not ready (%s). Run `make migrate`; retrying.",
+                    str(exc.orig).splitlines()[0] if exc.orig else exc,
+                )
+            worked = False
         except Exception:  # noqa: BLE001 — e.g. the DB went away
+            consecutive_errors += 1
             log.exception("worker loop error; backing off")
             worked = False
         if not worked:
-            time.sleep(settings.worker_poll_interval_s)
+            # Back off while something is broken so the log stays readable, but keep
+            # the normal idle poll snappy.
+            delay = settings.worker_poll_interval_s
+            if consecutive_errors:
+                delay = min(60.0, backoff_s(consecutive_errors))
+            time.sleep(delay)
     log.info("worker stopped")
     return 0
 

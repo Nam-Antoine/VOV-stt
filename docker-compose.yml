@@ -78,10 +78,12 @@ services:
     restart: unless-stopped
     env_file: [.env]
     depends_on: [api]
+    # Host ports are configurable: on a box that already runs a web server, set
+    # HTTP_PORT/HTTPS_PORT in .env rather than fighting over :80.
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web/dist:/srv/web:ro

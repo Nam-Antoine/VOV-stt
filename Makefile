@@ -50,13 +50,17 @@ install-backend: ## Create backend venv and install the package (editable)
 install-web: ## npm install for the frontend
 	cd $(WEB) && npm install
 
-dev: .env ## Bring up db + api + worker + caddy
+dev: .env ## Bring up db + api + worker + caddy (and migrate)
 	$(COMPOSE) up -d --build db api worker caddy
+	@echo "applying migrations..."
+	@$(COMPOSE) exec -T api alembic upgrade head
+	@$(COMPOSE) restart worker
 	@$(COMPOSE) ps
 	@echo ""
-	@echo "API      http://localhost:8000/api/docs  (direct)  or  http://localhost/api/docs (via caddy)"
-	@echo "Frontend run 'cd web && npm run dev' for HMR on http://localhost:5173"
-	@echo "           or 'make build' to publish web/dist for caddy on http://localhost/"
+	@port=$$(grep -E '^HTTP_PORT=' .env | tail -1 | cut -d= -f2); port=$${port:-80}; \
+	 echo "API      http://localhost:$$port/api/docs   (via caddy)"; \
+	 echo "App      http://localhost:$$port/           (serves web/dist; run 'make build' after a UI change)"; \
+	 echo "Frontend run 'cd web && npm run dev' for HMR on http://localhost:5173"
 
 dev-down: ## Stop the stack
 	$(COMPOSE) down
