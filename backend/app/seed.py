@@ -64,14 +64,25 @@ SETTINGS_SEED: dict[str, dict] = {
 
 
 def seed_hotwords(session, *, terms=HOTWORD_SEED) -> int:  # noqa: ANN001
-    stmt = pg_insert(Hotword).values([
-        {"term": term, "weight": weight, "note": note, "active": True}
-        for term, weight, note in terms
-    ]).on_conflict_do_nothing(index_elements=["term"])
-    return session.execute(stmt).rowcount or 0
+    """Insert missing terms; returns how many rows were actually inserted.
+
+    ``rowcount`` is unreliable for ``ON CONFLICT DO NOTHING`` (psycopg reports -1), so
+    the count comes from a RETURNING clause instead of being guessed.
+    """
+    stmt = (
+        pg_insert(Hotword)
+        .values([
+            {"term": term, "weight": weight, "note": note, "active": True}
+            for term, weight, note in terms
+        ])
+        .on_conflict_do_nothing(index_elements=["term"])
+        .returning(Hotword.id)
+    )
+    return len(session.execute(stmt).scalars().all())
 
 
 def seed_settings(session, *, force: bool = False) -> int:  # noqa: ANN001
+    """Write the default knobs. Without ``force``, existing keys are left alone."""
     written = 0
     for key, value in SETTINGS_SEED.items():
         stmt = pg_insert(Setting).values(key=key, value=value)
@@ -80,7 +91,7 @@ def seed_settings(session, *, force: bool = False) -> int:  # noqa: ANN001
             if force
             else stmt.on_conflict_do_nothing(index_elements=["key"])
         )
-        written += session.execute(stmt).rowcount or 0
+        written += len(session.execute(stmt.returning(Setting.key)).scalars().all())
     return written
 
 
