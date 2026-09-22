@@ -11,12 +11,13 @@ PY ?= python3
 BACKEND := backend
 WEB := web
 VENV := $(BACKEND)/.venv
+DEMO_DIR := $(WEB)/public/demo
 VENV_PY := $(VENV)/bin/python
 
 .DEFAULT_GOAL := help
 .PHONY: help env models dev dev-down dev-logs install install-backend install-web \
         test test-backend lint migrate revision seed pilot build deploy export \
-        backfill fmt clean
+        backfill fmt clean demo
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -106,6 +107,22 @@ pilot: ## Sweep §4.3 knobs and write pilot/RESULTS.md
 # ---------------------------------------------------------------------------
 run: ## Transcribe one file: make run AUDIO=x.mp3 OUT=x.json
 	cd $(BACKEND) && $(PY) -m app.pipeline.run --audio "$(abspath $(AUDIO))" --out "$(abspath $(OUT))"
+
+# ---------------------------------------------------------------------------
+# Demo fixture for the Episode screen (web/public/demo, gitignored).
+# Not client material: the audio is public sherpa-onnx test speech — see
+# web/public/demo/README.md. --force is correct here and nowhere else: this
+# fixture is disposable, unlike a real episode's raw JSON (PLAN §0.2).
+# ---------------------------------------------------------------------------
+demo: ## Regenerate web/public/demo/episode.json from episode.mp3
+	@test -f $(DEMO_DIR)/episode.mp3 || { \
+	  echo "missing $(DEMO_DIR)/episode.mp3 — see $(DEMO_DIR)/README.md"; exit 1; }
+	cd $(BACKEND) && $(PY) -m app.pipeline.run \
+	  --audio "$(abspath $(DEMO_DIR)/episode.mp3)" \
+	  --out "$(abspath $(DEMO_DIR)/episode.json)" \
+	  --models "$(abspath models)" \
+	  --work-dir "$(abspath $(DEMO_DIR))" \
+	  --force
 
 # ---------------------------------------------------------------------------
 # Build / deploy
