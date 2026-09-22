@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Utterance, Word } from '../api/types'
 import { displayText } from '../api/types'
-import { speakerColour } from './SpeakerLegend'
+import { speakerColour, speakerName } from './SpeakerLegend'
 
 export interface TranscriptEditorProps {
   utterances: Utterance[]
@@ -28,18 +28,16 @@ export interface TranscriptEditorProps {
   confThreshold?: number | null
   activeIndex?: number
   onActivate?: (index: number) => void
+  /** Scroll the playing utterance into view. Off while the reader is driving. */
+  followPlayhead?: boolean
+  /** id of the utterance currently being written to the API. */
+  savingId?: string | null
 }
 
 function timestamp(seconds: number) {
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${String(s).padStart(2, '0')}`
-}
-
-function label(speakerLabels: Record<number, string>, speaker: number) {
-  if (speakerLabels[speaker]) return speakerLabels[speaker]
-  if (speaker < 0) return 'SPEAKER_UNKNOWN'
-  return `SPEAKER_${String(speaker).padStart(2, '0')}`
 }
 
 function UtteranceBlock({
@@ -51,6 +49,8 @@ function UtteranceBlock({
   onRevert,
   confThreshold,
   active,
+  follow,
+  saving,
   onActivate,
 }: {
   utterance: Utterance
@@ -61,13 +61,17 @@ function UtteranceBlock({
   onRevert?: (id: string) => void
   confThreshold: number | null
   active: boolean
+  follow: boolean
+  saving: boolean
   onActivate?: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => displayText(utterance))
   const box = useRef<HTMLTextAreaElement>(null)
+  const article = useRef<HTMLElement>(null)
   const saved = displayText(utterance)
   const dirty = editing && draft !== saved
+  const colour = speakerColour(utterance.speaker)
 
   useEffect(() => {
     if (!editing) setDraft(saved)
@@ -77,36 +81,55 @@ function UtteranceBlock({
     if (editing) box.current?.focus()
   }, [editing])
 
+  // Follow the playhead down the page, but never yank the view while someone is
+  // typing into this block.
+  useEffect(() => {
+    if (active && follow && !editing) {
+      article.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [active, follow, editing])
+
   return (
     <article
+      ref={article}
       onClick={onActivate}
-      className={`rounded border bg-white p-3 ${
-        active ? 'border-slate-900' : 'border-slate-200'
-      } ${dirty ? 'ring-2 ring-amber-400' : ''}`}
+      onDoubleClick={() => setEditing(true)}
+      className={`utterance-anchor rounded-xl border-l-[3px] bg-surface py-3 pl-3 pr-3 transition-shadow ${
+        active ? 'shadow-sm ring-1 ring-accent/40' : 'ring-1 ring-line'
+      } ${dirty ? 'ring-2 ring-dirty' : ''}`}
+      style={{ borderLeftColor: colour }}
     >
-      <header className="mb-1 flex items-center gap-2 text-xs">
-        <span
-          className="rounded-full px-2 py-0.5 text-white"
-          style={{ backgroundColor: speakerColour(utterance.speaker) }}
-        >
-          {label(speakerLabels, utterance.speaker)}
+      <header className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-semibold" style={{ color: colour }}>
+          {speakerName(speakerLabels, utterance.speaker)}
         </span>
-        <span className="tabular-nums text-slate-400">
-          {timestamp(utterance.start_s)}
-        </span>
-        {utterance.text_verified !== null && (
-          <span className="text-emerald-600">verified</span>
-        )}
-        <span className="ml-auto flex gap-2">
+        <span className="tabular-nums text-faint">{timestamp(utterance.start_s)}</span>
+
+        {saving ? (
+          <span className="text-faint">saving…</span>
+        ) : utterance.text_verified !== null ? (
+          <span
+            className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+            title={
+              utterance.verified_by
+                ? `edited by ${utterance.verified_by}`
+                : 'human-edited'
+            }
+          >
+            verified
+          </span>
+        ) : null}
+
+        <span className="ml-auto flex items-center gap-1">
           {!editing && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 setEditing(true)
               }}
-              className="text-slate-400 hover:text-slate-900"
+              className="btn-ghost btn-sm"
             >
-              edit
+              Edit
             </button>
           )}
           {utterance.text_verified !== null && onRevert && (
@@ -116,37 +139,46 @@ function UtteranceBlock({
                 onRevert(utterance.id)
                 setEditing(false)
               }}
-              className="text-slate-400 hover:text-rose-600"
+              className="btn-ghost btn-sm hover:text-rose-600"
               title="Revert to the engine's text"
             >
-              revert
+              Revert
             </button>
           )}
         </span>
       </header>
 
       {editing ? (
-        <textarea
-          ref={box}
-          {...NO_AUTOCORRECT}
-          value={draft}
-          rows={Math.max(2, Math.ceil(draft.length / 90))}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => {
-            // Save exactly what is in the box. No trim(), no whitespace collapsing.
-            if (draft !== saved) onSave(utterance.id, draft)
-            setEditing(false)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setDraft(saved)
+        <>
+          <textarea
+            ref={box}
+            {...NO_AUTOCORRECT}
+            value={draft}
+            rows={Math.max(2, Math.ceil(draft.length / 80))}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={() => {
+              // Save exactly what is in the box. No trim(), no whitespace collapsing.
+              if (draft !== saved) onSave(utterance.id, draft)
               setEditing(false)
-            }
-          }}
-          className="w-full resize-y rounded border border-slate-300 p-2 font-transcript"
-        />
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setDraft(saved)
+                setEditing(false)
+              }
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.currentTarget.blur()
+              }
+            }}
+            className="w-full resize-y rounded-lg border border-line bg-canvas p-2.5 font-transcript text-utterance text-ink focus:border-accent focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-faint">
+            Esc discards · ⌘/Ctrl + Enter saves · stored byte for byte, no autocorrect
+          </p>
+        </>
       ) : (
-        <p className="whitespace-pre-wrap leading-relaxed">
+        <p className="max-w-measure whitespace-pre-wrap text-utterance">
           {words.length > 0
             ? words.map((w) => {
                 const low =
@@ -158,7 +190,8 @@ function UtteranceBlock({
                       e.stopPropagation()
                       onWordClick(w)
                     }}
-                    className={`cursor-pointer hover:bg-amber-100 ${
+                    title={`${timestamp(w.start_s)} — click to play from here`}
+                    className={`cursor-pointer rounded-sm hover:bg-accent/15 ${
                       low ? 'word-low-conf' : ''
                     }`}
                   >
@@ -183,6 +216,8 @@ export default function TranscriptEditor({
   confThreshold = null,
   activeIndex = -1,
   onActivate,
+  followPlayhead = false,
+  savingId = null,
 }: TranscriptEditorProps) {
   // Bucket words by utterance once, by time span: the API sends both lists flat and a
   // per-utterance filter would be O(utterances x words) on a few thousand words.
@@ -211,11 +246,13 @@ export default function TranscriptEditor({
           onRevert={onRevert}
           confThreshold={confThreshold}
           active={index === activeIndex}
+          follow={followPlayhead}
+          saving={savingId === u.id}
           onActivate={() => onActivate?.(index)}
         />
       ))}
       {utterances.length === 0 && (
-        <p className="text-slate-400">No utterances in this transcript.</p>
+        <p className="py-8 text-center text-muted">No utterances in this transcript.</p>
       )}
     </div>
   )

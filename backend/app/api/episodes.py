@@ -96,10 +96,11 @@ def upload_episode(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     session.commit()
-    if not created:
-        # Same bytes already ingested — hand back the existing episode rather than
-        # creating a second row pointing at identical audio.
-        pass
+    # `created` is False when these exact bytes were already ingested: the existing
+    # episode is handed back rather than a second row pointing at identical audio.
+    # Callers that auto-queue transcription must therefore check `status` before
+    # enqueueing — the episode they get back may already be transcribed.
+    del created
     return EpisodeOut.model_validate(episode)
 
 

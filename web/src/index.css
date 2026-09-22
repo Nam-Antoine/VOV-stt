@@ -2,12 +2,72 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Design tokens. Light is the default; .dark on <html> swaps the same names.
+   Values are space-separated RGB channels so Tailwind's <alpha-value> works.
+   --------------------------------------------------------------------------- */
 :root {
+  --canvas:      248 250 252;   /* page */
+  --surface:     255 255 255;   /* cards, rows, the player */
+  --sunken:      241 245 249;   /* table heads, inset wells */
+  --line:        226 232 240;   /* hairlines */
+  --ink:          15  23  42;   /* primary text */
+  --muted:        71  85 105;   /* secondary text */
+  --faint:       148 163 184;   /* timestamps, captions */
+  --accent:       67  56 202;   /* indigo-700 */
+  --accent-ink:  255 255 255;   /* text on accent */
+
+  --wave:        203 213 225;
+  --wave-played:  67  56 202;
+
   color-scheme: light;
 }
 
+.dark {
+  --canvas:       10  14  25;
+  --surface:      21  27  42;
+  --sunken:       29  37  55;
+  --line:         45  55  76;
+  --ink:         226 232 240;
+  --muted:       148 163 184;
+  --faint:       108 122 145;
+  --accent:      129 140 248;   /* indigo-400 — accessible on the dark surface */
+  --accent-ink:   12  16  28;
+
+  --wave:         60  72  96;
+  --wave-played: 129 140 248;
+
+  color-scheme: dark;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 font-transcript antialiased;
+  @apply bg-canvas text-ink font-transcript antialiased;
+}
+
+/* The theme swap fades surfaces rather than snapping. Scoped to the elements that
+   actually carry one: a transcript renders a few thousand word <span>s, and putting
+   a transition on every descendant makes the theme toggle janky on a long episode. */
+body,
+.card,
+.btn,
+.field,
+.chip,
+header,
+table,
+thead,
+tr,
+article {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* PLAN §10: the editor must never auto-correct. These attributes are set on the
@@ -19,4 +79,62 @@ body {
 /* Words below the confidence percentile (PLAN §10 "Show confidence"). */
 .word-low-conf {
   @apply underline decoration-dotted decoration-rose-400 underline-offset-4;
+}
+
+@layer components {
+  /* --- buttons ---------------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5
+           text-sm font-medium transition-colors
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent
+           focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-accent-ink hover:opacity-90;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:bg-sunken hover:text-ink;
+  }
+  .btn-outline {
+    @apply btn border border-line bg-surface text-ink hover:bg-sunken;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  /* --- surfaces --------------------------------------------------------- */
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+           text-ink placeholder:text-faint
+           focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  /* Loading placeholder that does not imply a progress value it does not have. */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-sunken;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 animate-shimmer;
+    content: '';
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--surface) / 0.6),
+      transparent
+    );
+  }
+}
+
+/* Keep the focused utterance clear of the sticky player when it is scrolled to. */
+.utterance-anchor {
+  scroll-margin-top: 13rem;
 }

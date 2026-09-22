@@ -53,7 +53,7 @@ export default function ConfidenceToggle({
             value={percentile}
             onChange={(e) => onPercentileChange?.(Number(e.target.value))}
           />
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-muted">
             below p{percentile}
             {threshold !== null ? ` (${threshold.toFixed(2)})` : ' (no conf data)'}
           </span>

@@ -1,11 +1,11 @@
 // PLAN §10: "the Episode screen is the product".
 //
-// Layout: waveform + play controls pinned top; transcript below, grouped into
-// utterances, each with a coloured speaker chip and a timestamp.
+// Layout: waveform pinned under the app header; transcript below, one card per
+// utterance with a coloured speaker rule down its left edge.
 //
-// Keyboard (PLAN §10):
-//   Space   play/pause        [ / ]  previous / next utterance
-//   L       loop utterance    Ctrl+Z revert utterance to text_asr
+// Keyboard (PLAN §10, plus F and ? added here):
+//   Space  play/pause     [ / ]  previous / next utterance
+//   L      loop utterance F      follow the playhead      ?  shortcut list
 //
 // Click a word → seek and play from that word. That single interaction is what makes
 // verification 2x faster; everything else on this screen is secondary to it.
@@ -15,20 +15,13 @@ import { Link, useParams } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
+import ExportMenu from '../components/ExportMenu'
+import { Spinner } from '../components/Icons'
+import Shortcuts from '../components/Shortcuts'
 import SpeakerLegend from '../components/SpeakerLegend'
 import TranscriptEditor from '../components/TranscriptEditor'
 import WaveformPlayer, { type WaveformPlayerHandle } from '../components/WaveformPlayer'
 import type { Utterance } from '../api/types'
-
-const EXPORT_FORMATS = [
-  { fmt: 'docx', label: 'Word (.docx)' },
-  { fmt: 'txt', label: 'Text' },
-  { fmt: 'verified.json', label: 'Verified JSON' },
-  { fmt: 'json', label: 'Raw JSON' },
-  { fmt: 'csv', label: 'Word CSV' },
-  { fmt: 'srt', label: 'Subtitles' },
-  { fmt: 'eaf', label: 'ELAN' },
-]
 
 export default function Episode() {
   const { id } = useParams<{ id: string }>()
@@ -38,6 +31,8 @@ export default function Episode() {
   const [showConf, setShowConf] = useState(false)
   const [percentile, setPercentile] = useState(15)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [follow, setFollow] = useState(true)
+  const [showKeys, setShowKeys] = useState(false)
 
   const episode = useQuery({
     queryKey: ['episode', id],
@@ -83,7 +78,10 @@ export default function Episode() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['episode', id] }),
   })
 
-  const utterances = transcript.data?.utterances ?? []
+  const utterances = useMemo(
+    () => transcript.data?.utterances ?? [],
+    [transcript.data],
+  )
   const words = transcript.data?.words ?? []
 
   const speakerLabels = useMemo(() => {
@@ -138,14 +136,21 @@ export default function Episode() {
       else if (e.key === 'l' || e.key === 'L') {
         const u = utterances[activeIndex]
         if (u) player.current?.loop(u.start_s, u.end_s)
-      }
+      } else if (e.key === 'f' || e.key === 'F') setFollow((v) => !v)
+      else if (e.key === '?') setShowKeys(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [goto, activeIndex, utterances])
 
   if (!id) return null
-  if (episode.isLoading) return <p className="text-slate-500">Loading…</p>
+  if (episode.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted">
+        <Spinner className="h-4 w-4" /> Loading…
+      </div>
+    )
+  }
   if (episode.isError) {
     return (
       <p className="text-rose-600">
@@ -156,35 +161,47 @@ export default function Episode() {
 
   const ep = episode.data!
   const verifiedCount = utterances.filter((u: Utterance) => u.text_verified !== null).length
+  const pct = utterances.length ? (verifiedCount / utterances.length) * 100 : 0
 
   return (
     <section className="space-y-4">
-      <header className="flex flex-wrap items-baseline gap-3">
-        <Link to="/episodes" className="text-sm text-slate-500 hover:underline">
+      {showKeys && <Shortcuts onClose={() => setShowKeys(false)} />}
+
+      <header>
+        <Link to="/episodes" className="text-sm text-muted hover:text-ink">
           ← Episodes
         </Link>
-        <h1 className="text-xl font-semibold">{ep.title || ep.slug}</h1>
-        <span className="text-sm text-slate-500">{ep.status}</span>
-        {utterances.length > 0 && (
-          <span className="text-sm text-slate-500">
-            {verifiedCount} / {utterances.length} utterances verified
-          </span>
-        )}
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="text-xl font-semibold">{ep.title || ep.slug}</h1>
+          <span className="text-sm text-faint">{ep.status}</span>
+          {utterances.length > 0 && (
+            <span className="ml-auto flex items-center gap-2 text-sm text-muted">
+              <span className="tabular-nums">
+                {verifiedCount} / {utterances.length} verified
+              </span>
+              <span className="h-1.5 w-24 overflow-hidden rounded-full bg-sunken">
+                <span
+                  className="block h-full rounded-full bg-verified transition-[width]"
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+            </span>
+          )}
+        </div>
       </header>
 
       {!transcriptId && (
-        <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">
-          <p className="font-medium text-amber-900">No transcript yet.</p>
-          <p className="mt-1 text-amber-800">
+        <div className="card border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            No transcript yet.
+          </p>
+          <p className="mt-1 text-amber-800 dark:text-amber-300/80">
             {ep.status === 'queued' || ep.status === 'processing'
               ? 'A job is running — this page refreshes itself.'
               : 'Press Transcribe to queue this episode.'}
           </p>
           {ep.status !== 'queued' && ep.status !== 'processing' && (
-            <button
-              onClick={() => transcribe.mutate()}
-              className="mt-3 rounded bg-slate-900 px-3 py-1.5 text-white"
-            >
+            <button onClick={() => transcribe.mutate()} className="btn-primary mt-3">
               Transcribe
             </button>
           )}
@@ -193,18 +210,31 @@ export default function Episode() {
 
       {transcriptId && (
         <>
-          <WaveformPlayer
-            ref={player}
-            src={api.audioUrl(transcriptId)}
-            onTimeUpdate={setCurrentTime}
-          />
+          {/* top-14 clears the sticky app header. */}
+          <div className="sticky top-14 z-20 -mx-1 bg-canvas/90 px-1 py-1 backdrop-blur">
+            <WaveformPlayer
+              ref={player}
+              src={api.audioUrl(transcriptId)}
+              onTimeUpdate={setCurrentTime}
+            />
+          </div>
 
-          <div className="flex flex-wrap items-center gap-4 rounded border border-slate-200 bg-white p-3">
+          <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 p-3">
             <SpeakerLegend
               speakers={transcript.data?.speakers ?? []}
+              utterances={utterances}
               onRename={(cluster, label) => rename.mutate({ cluster, label })}
             />
-            <div className="ml-auto flex items-center gap-4">
+            <div className="ml-auto flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-sm text-muted">
+                <input
+                  type="checkbox"
+                  checked={follow}
+                  onChange={(e) => setFollow(e.target.checked)}
+                  className="accent-accent"
+                />
+                Follow
+              </label>
               <ConfidenceToggle
                 enabled={showConf}
                 onChange={setShowConf}
@@ -212,27 +242,28 @@ export default function Episode() {
                 onPercentileChange={setPercentile}
                 threshold={confThreshold}
               />
-              <div className="flex gap-1">
-                {EXPORT_FORMATS.map((f) => (
-                  <a
-                    key={f.fmt}
-                    href={api.exportUrl(id, f.fmt)}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
-                  >
-                    {f.label}
-                  </a>
-                ))}
-              </div>
+              <button
+                onClick={() => setShowKeys(true)}
+                className="btn-ghost btn-sm"
+                title="Keyboard shortcuts (?)"
+              >
+                ?
+              </button>
+              <ExportMenu episodeId={id} />
             </div>
           </div>
 
-          <p className="text-xs text-slate-400">
-            Click a word to play from it. Space play/pause · [ ] previous/next · L loop.
-            Text is stored exactly as typed — no spellcheck, no autocorrect.
+          <p className="text-xs text-faint">
+            Click a word to play from it. Text is stored exactly as typed — no
+            spellcheck, no autocorrect. Press <b>?</b> for shortcuts.
           </p>
 
           {transcript.isLoading ? (
-            <p className="text-slate-500">Loading transcript…</p>
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="skeleton h-24 w-full rounded-xl" />
+              ))}
+            </div>
           ) : (
             <TranscriptEditor
               utterances={utterances}
@@ -244,6 +275,10 @@ export default function Episode() {
               confThreshold={confThreshold}
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
+              followPlayhead={follow}
+              savingId={
+                saveUtterance.isPending ? (saveUtterance.variables?.utteranceId ?? null) : null
+              }
             />
           )}
         </>

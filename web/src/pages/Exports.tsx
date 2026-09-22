@@ -22,7 +22,7 @@ export default function Exports() {
     <section>
       <header className="mb-4 flex items-baseline gap-3">
         <h1 className="text-xl font-semibold">Exports</h1>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-muted">
           always regenerated from the raw JSON — nothing cached
         </span>
       </header>
@@ -30,21 +30,21 @@ export default function Exports() {
       <div className="mb-5 flex gap-2">
         <a
           href={api.corpusZipUrl('verified')}
-          className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white"
+          className="btn-primary"
         >
           corpus.zip (verified)
         </a>
         <a
           href={api.corpusZipUrl('all')}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+          className="btn-outline"
         >
           corpus.zip (all)
         </a>
       </div>
 
-      <div className="overflow-hidden rounded border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <thead className="bg-sunken text-left text-xs uppercase text-muted">
             <tr>
               <th className="px-3 py-2">Episode</th>
               <th className="px-3 py-2">Formats</th>
@@ -52,7 +52,7 @@ export default function Exports() {
           </thead>
           <tbody>
             {rows.map((e) => (
-              <tr key={e.id} className="border-t border-slate-100">
+              <tr key={e.id} className="border-t border-line">
                 <td className="px-3 py-2">
                   <Link to={`/episodes/${e.id}`} className="hover:underline">
                     {e.title || e.slug}
@@ -64,7 +64,7 @@ export default function Exports() {
                       <a
                         key={f.fmt}
                         href={api.exportUrl(e.id, f.fmt)}
-                        className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                        className="btn-outline btn-sm"
                       >
                         {f.label}
                       </a>
@@ -75,7 +75,7 @@ export default function Exports() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={2} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={2} className="px-3 py-8 text-center text-faint">
                   No transcribed episodes yet.
                 </td>
               </tr>
