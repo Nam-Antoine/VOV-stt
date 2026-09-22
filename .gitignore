@@ -49,3 +49,8 @@ node_modules/
 .vscode/
 *.swp
 web/tsconfig.tsbuildinfo
+
+# --- demo fixture for the Episode screen; regenerate with `make demo`
+/web/public/demo/*.json
+/web/public/demo/*.mp3
+/web/public/demo/*.wav
