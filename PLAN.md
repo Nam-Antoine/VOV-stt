@@ -250,7 +250,7 @@ every setting, stop and escalate — do not proceed to the web app on this engin
 ```
 
 Always `json.dump(..., ensure_ascii=False)` and open files with `encoding="utf-8"`.
-Diacritics turning into `ạ` means someone forgot — treat as a test failure.
+Diacritics turning into JSON escapes (backslash-u plus a hex code) mean someone forgot — treat as a test failure.
 
 ---
 
@@ -547,7 +547,7 @@ Commands: `make dev`, `make test`, `make pilot`, `make deploy`, `make export EP=
 |---|---|
 | `sherpa_onnx` fails to load tokens | You passed `config.json`. Rename to `tokens.txt`; first line `<blk> 0`. |
 | Text suspiciously clean, no "à/ừ" | Either the model (pilot fail) or VAD ate short segments (lower threshold, add padding). Diff against the docx. |
-| Diacritics as `ạ` | Missing `ensure_ascii=False`. |
+| Diacritics as backslash-u escapes | Missing `ensure_ascii=False`. |
 | Words glued together / spacing wrong | You split on spaces instead of on `▁` tokens. |
 | Hotwords have no effect | Decoding is greedy. Must be `modified_beam_search`; also `modeling_unit="bpe"` + `bpe_vocab`. |
 | Too many speaker clusters | Raise diarization threshold; also `min_duration_on`. Vox-pop montage segments will always be messy — flag, don't tune forever. |
