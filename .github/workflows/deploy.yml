@@ -1,0 +1,161 @@
+# Deploy to the VPS over SSH, after CI has gone green on main.
+#
+# Deliberately *not* a registry push: the box builds its own images. There is one
+# worker, one Postgres and ~525 MB of ONNX on local disk, and a pull-based deploy keeps
+# the model cache and /data volume untouched between releases (PLAN §0.2 — the raw JSON
+# is the record of truth and must survive every deploy).
+#
+# Required repository secrets:
+#   DEPLOY_HOST        VPS address
+#   DEPLOY_USER        ssh user (root on this box)
+#   DEPLOY_SSH_KEY     private key, PEM, whose public half is in ~/.ssh/authorized_keys
+#   DEPLOY_PATH        checkout on the box, e.g. /ternary/vov-stt
+# Optional:
+#   DEPLOY_PORT        ssh port (default 22)
+#   HEALTH_URL         health endpoint to poll (default http://localhost:8080/api/health)
+#
+# Off until the repository variable DEPLOY_ENABLED is "true" (Settings → Secrets and
+# variables → Actions → Variables), so a fork or a fresh repo without the secrets does
+# not get a red Deploy run on every push. The box's `origin` must point at this repo.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    # Never deploy a red build. workflow_dispatch has no upstream run to check.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success')
+    environment: production
+    steps:
+      - name: Check required secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          missing=
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secrets:$missing"
+            echo "::error::see the header of .github/workflows/deploy.yml"
+            exit 1
+          fi
+
+      - name: Open an ssh session
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${PORT:-22}" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Pull, rebuild, migrate
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          # workflow_run: the commit CI tested; workflow_dispatch: the tip of main.
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" "$USER@$HOST" \
+              DEPLOY_PATH="$DEPLOY_PATH" SHA="$SHA" 'bash -euo pipefail -s' <<'REMOTE'
+            cd "$DEPLOY_PATH"
+
+            # Record what we are rolling back to before anything changes.
+            PREV=$(git rev-parse HEAD)
+            echo "current: $PREV"
+            echo "$PREV" > .deploy-prev
+
+            git fetch --quiet origin main
+            git checkout --quiet main
+            # The commit CI went green on, not whatever main has moved to since.
+            git reset --hard "$SHA"
+            echo "deploying: $(git rev-parse HEAD)"
+
+            # Models are ~525 MB of ONNX outside git; fetch only what is missing.
+            make models
+
+            # Caddy serves web/dist, which is not in git: build it here.
+            (cd web && npm ci --no-audit --no-fund && npm run build)
+
+            docker compose build
+            docker compose up -d
+            docker compose run --rm api alembic upgrade head
+          REMOTE
+
+      - name: Health check
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" "$USER@$HOST" \
+              HEALTH_URL="${HEALTH_URL:-http://localhost:8080/api/health}" \
+              'bash -euo pipefail -s' <<'REMOTE'
+            # The worker heartbeat and the model check are part of "healthy" here:
+            # an API that answers while the worker is dead would queue jobs forever.
+            for i in $(seq 1 30); do
+              body=$(curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null) || { sleep 5; continue; }
+              echo "$body"
+              ok=$(printf '%s' "$body" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          print("yes" if d.get("ok") and d.get("db")
+                and all(d.get("models",{}).values())
+                and (d.get("worker_heartbeat_s") or 999) < 120 else "no")')
+              [ "$ok" = yes ] && { echo "healthy after ${i} attempt(s)"; exit 0; }
+              sleep 5
+            done
+            echo "::error::service did not become healthy"
+            exit 1
+          REMOTE
+
+      - name: Roll back on failure
+        if: failure()
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" "$USER@$HOST" \
+              DEPLOY_PATH="$DEPLOY_PATH" 'bash -euo pipefail -s' <<'REMOTE'
+            cd "$DEPLOY_PATH"
+            [ -f .deploy-prev ] || { echo "no previous revision recorded"; exit 1; }
+            PREV=$(cat .deploy-prev)
+            echo "rolling back to $PREV"
+            git reset --hard "$PREV"
+            (cd web && npm ci --no-audit --no-fund && npm run build)
+            docker compose build
+            docker compose up -d
+            # Migrations are not auto-downgraded: 0001 drops every table on downgrade,
+            # which would destroy the corpus. Roll the schema back by hand if a release
+            # ever needs it.
+            echo "code rolled back; schema left at head — check it by hand"
+          REMOTE
+
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

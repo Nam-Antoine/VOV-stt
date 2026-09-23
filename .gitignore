@@ -1,0 +1,59 @@
+# --- models: downloaded, never committed (PLAN §7; CC BY-NC-ND, see LICENSE-NOTICE.md)
+/models/*
+!/models/.gitkeep
+!/models/MANIFEST.json
+
+# --- runtime data: audio, the immutable raw JSON, exports (PLAN §6)
+/data/
+
+# --- client material: episode audio AND transcripts. Vox-pop voices are
+#     identifiable private individuals (PLAN §0.3) and this repo is PUBLIC, so
+#     nothing containing their speech is committed.
+#     NOTE: PLAN §7 lists pilot/reference.txt as a repo file. That is deviated from
+#     here deliberately, for the privacy reason above. Delete the
+#     two reference lines below if the repo is made private.
+/resource/
+/pilot/clip_2min.wav
+/pilot/*.wav
+/pilot/*.mp3
+/pilot/*.docx
+/pilot/reference.txt
+/pilot/reference.*.txt
+/pilot/out/
+
+# --- python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- node / vite
+node_modules/
+/web/dist/
+/web/.vite/
+*.tsbuildinfo
+
+# --- env and secrets
+.env
+.env.*
+!.env.example
+
+# --- editors / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+web/tsconfig.tsbuildinfo
+
+# --- demo fixture for the Episode screen; regenerate with `make demo`
+/web/public/demo/*.json
+/web/public/demo/*.mp3
+/web/public/demo/*.wav
+
+# written by .github/workflows/deploy.yml on the box
+.deploy-prev

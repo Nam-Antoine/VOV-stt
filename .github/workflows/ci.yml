@@ -1,0 +1,188 @@
+# CI for vn-stt-corpus.
+#
+# The job that matters most here is `verbatim`. CLAUDE.md rule 1 and PLAN §0.1 say
+# nothing in the pipeline may remove, dedupe, normalise, punctuate or capitalise text.
+# That is a correctness property of a *linguistic corpus*, not a style preference, so it
+# gets its own required job rather than hiding inside the general test run.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
+jobs:
+  verbatim:
+    name: Verbatim gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: No normalisation
+        working-directory: backend
+        run: python -m pytest -q app/tests/test_no_normalisation.py
+
+      - name: Reject LLM client dependencies (CLAUDE.md rule 7)
+        run: |
+          # An LLM in this pipeline would paraphrase the corpus. Fail loudly if one
+          # ever lands in the dependency list.
+          if grep -nEi '^\s*"?(anthropic|openai|cohere|litellm|langchain)' \
+               backend/pyproject.toml; then
+            echo "::error::LLM client package in backend dependencies — CLAUDE.md rule 7"
+            exit 1
+          fi
+          echo "no LLM client packages"
+
+  backend:
+    name: Backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        working-directory: backend
+        run: python -m ruff check app
+
+      - name: Pytest
+        working-directory: backend
+        run: python -m pytest -q app/tests --cov=app --cov-report=term-missing
+
+  migrations:
+    name: Migrations apply to a real Postgres
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vnstt
+          POSTGRES_PASSWORD: vnstt
+          POSTGRES_DB: vnstt
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vnstt"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://vnstt:vnstt@localhost:5432/vnstt
+        run: alembic upgrade head
+
+      - name: alembic downgrade base, then up again
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://vnstt:vnstt@localhost:5432/vnstt
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Hotword seed is present and idempotent
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://vnstt:vnstt@localhost:5432/vnstt
+        run: |
+          python - <<'PY'
+          import os, sqlalchemy as sa
+          e = sa.create_engine(os.environ["DATABASE_URL"])
+          with e.connect() as c:
+              n = c.execute(sa.text("select count(*) from hotwords")).scalar()
+          assert n >= 15, f"expected the §8 seed, got {n} hotwords"
+          print(f"{n} hotwords seeded")
+          PY
+
+  web:
+    name: Frontend (tsc + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: web
+        run: npm run lint
+
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  images:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Compose config is valid
+        # Services read .env via env_file, which a clean checkout does not have.
+        run: cp .env.example .env && docker compose config >/dev/null
