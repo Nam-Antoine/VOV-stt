@@ -40,10 +40,6 @@ def ordered_utterances(session: Session, transcript_id: uuid.UUID) -> list[Utter
     ))
 
 
-def stale_count(session: Session, transcript_id: uuid.UUID) -> int:
-    return sum(1 for u in ordered_utterances(session, transcript_id) if is_stale(u))
-
-
 def refresh(session: Session, transcript_id: uuid.UUID,
             punctuator: punctuate.Punctuator) -> int:
     """Recompute stale turns. Returns the number of utterances written. Flushes only."""

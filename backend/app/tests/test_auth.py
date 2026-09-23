@@ -248,3 +248,11 @@ def test_open_mode_needs_no_cookie_and_hides_accounts(client_with, monkeypatch):
     assert r.status_code == 404
     anyone = deps.current_user(Req(None), FakeSession())
     assert deps.require_editor(anyone) == settings.open_editor
+
+
+def test_login_refuses_to_start_with_a_placeholder_secret(monkeypatch):
+    from app.main import on_startup
+
+    monkeypatch.setattr(settings, "secret_key", "dev-only-change-me")
+    with pytest.raises(RuntimeError):
+        on_startup()

@@ -26,12 +26,11 @@ from sqlalchemy.orm import Session
 
 from .. import loader
 from .. import readable as readable_mod
-from ..config import settings
 from ..db import get_session
 from ..exports import TIER_ASR, TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
 from ..exports import readable as readable_export
 from ..models import Episode
-from .deps import require_editor
+from .deps import refresh_readable_layer, require_editor, require_punct_model
 
 router = APIRouter(tags=["exports"])
 
@@ -114,21 +113,13 @@ def render(fmt: str, doc: dict, speakers: dict, overrides: dict,
 
 def _readable(session: Session, episode_id: uuid.UUID, fmt: str):
     """Refresh stale turns of the readable layer, then lay it out."""
-    from ..pipeline import punctuate
-
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
     transcript = loader.current_transcript(session, episode.id)
     if transcript is None:
         raise HTTPException(status_code=409, detail="tập này chưa có bản chép lời")
-    if transcript.speakers_pending:
-        raise HTTPException(status_code=409,
-                            detail="đang xác định người nói — vui lòng chờ xử lý xong")
-    if not settings.punct_available():
-        raise HTTPException(status_code=503, detail="chưa cài mô hình thêm dấu câu")
-    readable_mod.refresh(session, transcript.id, punctuate.get(settings.punct_params()))
-    session.commit()
+    refresh_readable_layer(session, transcript)
     items = [
         {"speaker": u.speaker, "text": u.text_readable}
         for u in readable_mod.ordered_utterances(session, transcript.id)
@@ -242,6 +233,8 @@ def all_readable_zip(
     Episodes still being transcribed or waiting for speaker labels are skipped, and
     listed in the zip's README so nobody wonders where they went.
     """
+    # Without the model every episode would fail; say so once, not once per file.
+    require_punct_model()
     suffix = FORMATS[fmt][1]
     buf = io.BytesIO()
     skipped: list[str] = []

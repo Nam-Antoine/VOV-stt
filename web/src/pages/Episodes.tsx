@@ -52,6 +52,23 @@ export function StatusChip({
   )
 }
 
+/** Transcribe what is waiting (or failed); open what has a transcript. */
+function RowAction({ episode, onTranscribe }: { episode: EpisodeListItem; onTranscribe: () => void }) {
+  if (episode.status === 'ingested' || episode.status === 'failed') {
+    return (
+      <button onClick={onTranscribe} className="btn-outline btn-sm">
+        Chép lời
+      </button>
+    )
+  }
+  if (!episode.current_transcript_id) return null
+  return (
+    <Link to={`/episodes/${episode.id}`} className="btn-outline btn-sm">
+      Mở
+    </Link>
+  )
+}
+
 function duration(seconds: number | null) {
   if (!seconds) return '—'
   const m = Math.floor(seconds / 60)
@@ -240,7 +257,8 @@ export default function Episodes() {
         // minutes of a shared 4-vCPU box re-deriving a transcript we already have,
         // so only episodes actually waiting for one are queued.
         const waiting = episode.status === 'ingested' || episode.status === 'failed'
-        if (auto && waiting) {
+        const queued = auto && waiting
+        if (queued) {
           try {
             await api.transcribe(episode.id, { hotwords: true, diarize: true })
           } catch (err) {
@@ -250,7 +268,7 @@ export default function Episodes() {
             })
           }
         }
-        if (episode.status !== 'ingested') repeats.push(episode)
+        if (episode.status !== 'ingested' && !queued) repeats.push(episode)
         // Each finished file shows up in the library straight away, not at the end.
         queryClient.invalidateQueries({ queryKey: ['episodes'] })
       }
@@ -265,6 +283,7 @@ export default function Episodes() {
   })
 
   const ingested = rows.filter((e) => e.status === 'ingested')
+  const emptyText = q ? `Không có kết quả cho “${q}”.` : 'Chưa có tập nào — hãy thả file âm thanh vào ô phía trên.'
 
   return (
     <section>
@@ -305,10 +324,12 @@ export default function Episodes() {
         onDrop={(e) => {
           e.preventDefault()
           setDragging(false)
+          if (upload.isPending) return
           if (e.dataTransfer.files.length) upload.mutate(e.dataTransfer.files)
         }}
-        onClick={() => fileInput.current?.click()}
+        onClick={() => !upload.isPending && fileInput.current?.click()}
         onKeyDown={(e) => {
+          if (upload.isPending) return
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             fileInput.current?.click()
@@ -317,6 +338,7 @@ export default function Episodes() {
         role="button"
         tabIndex={0}
         aria-label="Tải lên âm thanh"
+        aria-disabled={upload.isPending}
         className={`mb-3 mt-4 flex min-h-[18rem] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-strong sm:min-h-[22rem] ${
           dragging
             ? 'border-accent-strong bg-accent/15'
@@ -407,7 +429,7 @@ export default function Episodes() {
 
       {upload.isError && (
         <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
-          {upload.error instanceof ApiError ? upload.error.detail : 'Tải lên thất bại'}
+          Tải lên bị gián đoạn — hãy thử lại.
         </p>
       )}
 
@@ -449,18 +471,7 @@ export default function Episodes() {
                 </span>
               )}
               <span className="ml-auto">
-                {e.status === 'ingested' || e.status === 'failed' ? (
-                  <button
-                    onClick={() => transcribe.mutate(e.id)}
-                    className="btn-outline btn-sm"
-                  >
-                    Chép lời
-                  </button>
-                ) : e.current_transcript_id ? (
-                  <Link to={`/episodes/${e.id}`} className="btn-outline btn-sm">
-                    Mở
-                  </Link>
-                ) : null}
+                <RowAction episode={e} onTranscribe={() => transcribe.mutate(e.id)} />
               </span>
             </div>
           </li>
@@ -504,29 +515,14 @@ export default function Episodes() {
                   {e.n_utterances ? `${e.n_verified} / ${e.n_utterances}` : '—'}
                 </td>
                 <td className="py-4 pr-4 text-right align-top">
-                  {e.status === 'ingested' || e.status === 'failed' ? (
-                    <button
-                      onClick={() => transcribe.mutate(e.id)}
-                      className="btn-outline btn-sm"
-                    >
-                      Chép lời
-                    </button>
-                  ) : e.current_transcript_id ? (
-                    <Link to={`/episodes/${e.id}`} className="btn-outline btn-sm">
-                      Mở
-                    </Link>
-                  ) : null}
+                  <RowAction episode={e} onTranscribe={() => transcribe.mutate(e.id)} />
                 </td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-12 text-center text-muted">
-                  {episodes.isLoading
-                    ? 'Đang tải…'
-                    : q
-                      ? `Không có kết quả cho “${q}”.`
-                      : 'Chưa có tập nào — hãy thả file âm thanh vào ô phía trên.'}
+                  {episodes.isLoading ? 'Đang tải…' : emptyText}
                 </td>
               </tr>
             )}
@@ -536,7 +532,7 @@ export default function Episodes() {
 
       {rows.length === 0 && !episodes.isLoading && (
         <p className="py-8 text-center text-sm text-muted sm:hidden">
-          {q ? `Không có kết quả cho “${q}”.` : 'Chưa có tập nào — hãy thả file âm thanh vào ô phía trên.'}
+          {emptyText}
         </p>
       )}
     </section>

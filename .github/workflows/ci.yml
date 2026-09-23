@@ -184,4 +184,5 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Compose config is valid
-        run: docker compose --env-file .env.example config >/dev/null
+        # Services read .env via env_file, which a clean checkout does not have.
+        run: cp .env.example .env && docker compose config >/dev/null

@@ -134,6 +134,7 @@ export interface Health {
   models: Record<string, boolean>
   worker_heartbeat_s: number | null
   version: string
+  readable_available: boolean
 }
 
 export const UTTERANCE_FLAGS = ['overlap', 'unclear', 'music', 'not-speech'] as const

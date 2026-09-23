@@ -28,8 +28,9 @@ export default function Login() {
 
       <div className="w-full max-w-sm animate-slide-up">
         <div className="mb-6 text-center">
-          <p className="eyebrow">VOV2 · Đàn bà 30+</p>
-          <h1 className="title mt-2">VN-STT Corpus</h1>
+          <img src="/favicon.svg" alt="" width={48} height={48} className="mx-auto h-12 w-12" />
+          <h1 className="title mt-3">Kho ngữ liệu VN-STT</h1>
+          <p className="mt-1 text-sm text-muted">VOV2 · Đàn bà 30+</p>
         </div>
 
         <form

@@ -88,6 +88,13 @@ def test_turn_is_cut_back_into_its_utterances():
     assert out == ["Xin chào", "mọi người."]
 
 
+def test_verifier_typed_capitals_survive_but_engine_capitals_do_not():
+    p = scripted(lambda t: ["$KEEP"] * (len(t) - 1) + ["$APPEND_."])
+    typed, engine = "tới Hà Nội nghe VOV2", "TỚI HÀ NỘI"
+    assert punctuate.readable_turn(p, [typed]) == ["Tới Hà Nội nghe VOV2."]
+    assert punctuate.readable_turn(p, [engine]) == ["Tới hà nội."]
+
+
 def test_sentences_split_at_full_stops_and_questions():
     assert punctuate.sentences("Xin chào. Vì sao vậy? Thế thôi") == [
         "Xin chào.", "Vì sao vậy?", "Thế thôi"]
@@ -230,11 +237,14 @@ def test_readable_pdf_renders_vietnamese():
     assert b"DejaVuSerif" in out  # the Vietnamese-capable font is embedded
 
 
-def test_download_all_route_accepts_only_reading_formats():
+def test_download_all_route_accepts_only_reading_formats(monkeypatch):
     from fastapi.testclient import TestClient
 
+    from app.config import settings
     from app.db import get_session
     from app.main import app
+
+    monkeypatch.setattr(type(settings), "punct_available", lambda self: True)
 
     class NoEpisodes:
         def scalars(self, _):
@@ -247,5 +257,8 @@ def test_download_all_route_accepts_only_reading_formats():
             r = client.get(f"/api/exports/all.zip?fmt={fmt}")
             assert r.status_code == 200 and r.content[:2] == b"PK", fmt
         assert client.get("/api/exports/all.zip?fmt=json").status_code == 422
+        # No model: one clear 503, not a zip of per-episode failures.
+        monkeypatch.setattr(type(settings), "punct_available", lambda self: False)
+        assert client.get("/api/exports/all.zip").status_code == 503
     finally:
         app.dependency_overrides.clear()

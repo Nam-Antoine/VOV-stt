@@ -18,13 +18,13 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..models import Transcript, Utterance, UtteranceEdit, Word
 from ..schemas import UtteranceOut, UtterancePatch, UtteranceSplit
-from .deps import require_editor
+from .deps import SPEAKERS_PENDING, require_editor
 
 router = APIRouter(prefix="/utterances", tags=["utterances"])
 
 
 #: 409 detail while the transcript is the ASR-only preview.
-SPEAKERS_PENDING_DETAIL = "đang xác định người nói — vui lòng chờ xử lý xong rồi hãy sửa"
+SPEAKERS_PENDING_DETAIL = f"{SPEAKERS_PENDING} rồi hãy sửa"
 
 
 def ensure_editable(transcript: Transcript | None) -> None:

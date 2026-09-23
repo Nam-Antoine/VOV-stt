@@ -259,3 +259,5 @@ class Health(BaseModel):
     models: dict[str, bool]
     worker_heartbeat_s: float | None = None
     version: str
+    # False → the Word/PDF/TXT downloads answer 503 (no punctuation model installed).
+    readable_available: bool = False

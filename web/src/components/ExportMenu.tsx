@@ -16,14 +16,19 @@ const FORMATS = [
   { fmt: 'readable.txt', label: 'Văn bản (.txt)', hint: 'Chữ thuần, mỗi câu một dòng' },
 ]
 
+export const SPEAKERS_PENDING = 'Tải về được khi xác định người nói xong'
+
 /** One episode's downloads; without ``episodeId`` it zips every finished episode. */
 export default function ExportMenu({
   episodeId,
   disabled = false,
+  disabledReason,
   label = 'Tải về',
 }: {
   episodeId?: string
   disabled?: boolean
+  /** Tooltip while disabled: why the download isn't available yet. */
+  disabledReason?: string
   label?: string
 }) {
   const href = (fmt: string) => (episodeId ? api.exportUrl(episodeId, fmt) : api.allZipUrl(fmt))
@@ -50,7 +55,7 @@ export default function ExportMenu({
     <div
       ref={wrap}
       className={`relative inline-flex items-center ${disabled ? 'pointer-events-none opacity-50' : ''}`}
-      title={disabled ? 'Tải về được khi xác định người nói xong' : undefined}
+      title={disabled ? disabledReason : undefined}
     >
       <button
         onClick={() => setOpen((v) => !v)}

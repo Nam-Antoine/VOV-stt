@@ -17,7 +17,7 @@ VENV_PY := $(VENV)/bin/python
 .DEFAULT_GOAL := help
 .PHONY: help env models dev dev-down dev-logs install install-backend install-web \
         test test-backend lint migrate revision seed pilot build deploy export \
-        backfill fmt clean demo
+        backfill fmt clean demo models-verify run
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -32,7 +32,7 @@ env: .env ## Create .env from .env.example if missing
 # ---------------------------------------------------------------------------
 # Models (PLAN §11 T0) — idempotent; safe to re-run.
 # ---------------------------------------------------------------------------
-models: ## Download ASR + VAD + diarization models into ./models
+models: ## Download ASR + VAD + diarization + punctuation models into ./models
 	$(PY) scripts/download_models.py --dest models
 
 models-verify: ## Re-check sha256s in models/MANIFEST.json without downloading

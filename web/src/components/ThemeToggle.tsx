@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 import { Moon, Sun } from './Icons'
 
@@ -7,28 +7,27 @@ type Theme = 'light' | 'dark'
 // 'vnstt.theme' key also stored the OS preference, so it can't tell choice from default.)
 const KEY = 'vnstt.theme.choice'
 
-function initial(): Theme {
-  try {
-    return localStorage.getItem(KEY) === 'dark' ? 'dark' : 'light'
-  } catch {
-    return 'light'
-  }
+// The <html> class is the one source of truth: the boot script in index.html sets it
+// before first paint, and every toggle on the page (the sidebar's and the phone
+// header's are both mounted) reads it through this store, so they never disagree.
+const listeners = new Set<() => void>()
+const subscribe = (cb: () => void) => {
+  listeners.add(cb)
+  return () => void listeners.delete(cb)
 }
+const current = (): Theme => (document.documentElement.classList.contains('dark') ? 'dark' : 'light')
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(initial)
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-  }, [theme])
+  const theme = useSyncExternalStore(subscribe, current)
 
   const setTheme = (t: Theme) => {
-    setThemeState(t)
+    document.documentElement.classList.toggle('dark', t === 'dark')
     try {
       localStorage.setItem(KEY, t)
     } catch {
       // private mode: the choice just isn't remembered
     }
+    listeners.forEach((cb) => cb())
   }
 
   return { theme, setTheme }

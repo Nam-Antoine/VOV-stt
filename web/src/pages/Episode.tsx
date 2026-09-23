@@ -15,7 +15,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
-import ExportMenu from '../components/ExportMenu'
+import ExportMenu, { SPEAKERS_PENDING } from '../components/ExportMenu'
 import { ArrowLeft, Spinner } from '../components/Icons'
 import Shortcuts from '../components/Shortcuts'
 import SpeakerLegend from '../components/SpeakerLegend'
@@ -337,7 +337,11 @@ export default function Episode() {
               >
                 ?
               </button>
-              <ExportMenu episodeId={id} disabled={pending} />
+              <ExportMenu
+                episodeId={id}
+                disabled={pending || !transcript.data?.readable_available}
+                disabledReason={pending ? SPEAKERS_PENDING : 'Máy chủ chưa cài mô hình thêm dấu câu'}
+              />
             </div>
           </div>
 

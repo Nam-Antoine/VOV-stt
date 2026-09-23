@@ -41,12 +41,6 @@ export const Loop = (p: P) => (
     <path d="M21 13v2a4 4 0 01-4 4H3" />
   </Svg>
 )
-export const Upload = (p: P) => (
-  <Svg {...p}>
-    <path d="M12 16V4m0 0L8 8m4-4l4 4" />
-    <path d="M3 16v2a3 3 0 003 3h12a3 3 0 003-3v-2" />
-  </Svg>
-)
 export const Download = (p: P) => (
   <Svg {...p}>
     <path d="M12 4v12m0 0l-4-4m4 4l4-4" />

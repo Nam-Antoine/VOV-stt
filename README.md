@@ -69,10 +69,11 @@ counts back to 3 and dropping the `cpus` cap.
 
 ```bash
 cp .env.example .env            # edit SECRET_KEY
-make models                     # ~64 MB of ONNX into ./models
+make models                     # ~525 MB of ONNX into ./models
 make test                       # unit tests, including the verbatim gate
 make dev                        # db + api + worker + caddy
-docker compose exec api python -m app.users create <you> --admin   # first account
+# only with AUTH_ENABLED=true in .env — login is off by default:
+docker compose exec api python -m app.users create <you> --admin
 ```
 
 Transcribe one file without the web stack:
@@ -116,11 +117,11 @@ the corpus, not a style rule, so it should be readable as pass/fail on its own l
 set as a required check on `main`.
 
 `.github/workflows/deploy.yml` deploys to the VPS after CI goes green on `main`, or on
-demand. It pulls, rebuilds, migrates, then polls `/api/health` until the API, the DB, all
-six model files *and* the worker heartbeat are good — an API that answers while the worker
+demand, once the repository variable `DEPLOY_ENABLED` is `true`. It pulls, rebuilds, migrates, then polls `/api/health` until the API, the DB, all
+the model checks *and* the worker heartbeat are good — an API that answers while the worker
 is dead would queue jobs forever. On failure it rolls the code back to the previous commit.
 
-It is pull-based rather than a registry push so the ~64 MB model cache and the `/data`
+It is pull-based rather than a registry push so the ~525 MB model cache and the `/data`
 volume survive every release untouched (PLAN §0.2).
 
 **Before the first deploy**, add these repository secrets

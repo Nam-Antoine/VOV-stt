@@ -54,7 +54,7 @@ A self-hosted web app that:
    per line with speaker), word-level `.csv`, `.srt`.
 6. Runs as `docker compose up` on the VPS; deploys from the git repo.
 
-**Not in v1:** auth beyond a single shared password, multi-tenant, GPU paths, streaming
+**Not in v1:** auth beyond per-user accounts (off by default), multi-tenant, GPU paths, streaming
 mic input, LLM anything, automatic scraping of vovlive.vn (manual URL ingest only; see §9).
 
 ---
@@ -404,7 +404,7 @@ settings (key text pk, value jsonb)   -- pipeline knobs chosen in the pilot (bla
 ## 9. API surface (all under `/api`, JSON, cookie auth)
 
 ```
-POST   /auth/login                       {password}
+POST   /auth/login                       {username, password}
 GET    /episodes?status=&q=              list
 POST   /episodes/upload                  multipart file → ingest job
 POST   /episodes/from-url                {url, title?, air_date?} → fetch + ingest

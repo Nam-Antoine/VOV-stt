@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     # PLAN §3: 4 vCPU box, ASR gets 3 threads.
-    OMP_NUM_THREADS=3
+    OMP_NUM_THREADS=2
 
 # ffmpeg is a hard dependency of app/pipeline/audio.py; libsndfile backs soundfile;
 # DejaVu is the Vietnamese-capable font of the PDF export.

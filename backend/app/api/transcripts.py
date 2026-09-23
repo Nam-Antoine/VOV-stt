@@ -19,7 +19,7 @@ from ..config import settings
 from ..db import get_session
 from ..models import Episode, Speaker, Transcript, Utterance, Word
 from ..schemas import SpeakerOut, TranscriptOut, UtteranceOut, WordOut
-from .deps import require_editor
+from .deps import refresh_readable_layer, require_editor
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 
@@ -104,21 +104,8 @@ def refresh_readable(
     takes well under a second; a transcript that never had the layer takes ~20 s.
     The corpus text is not touched (CLAUDE.md rule 1).
     """
-    from ..pipeline import punctuate
-
     transcript = _transcript_or_404(session, transcript_id)
-    if transcript.speakers_pending:
-        raise HTTPException(
-            status_code=409,
-            detail="đang xác định người nói — vui lòng chờ xử lý xong",
-        )
-    if not settings.punct_available():
-        raise HTTPException(status_code=503, detail="chưa cài mô hình thêm dấu câu")
-    written = readable_mod.refresh(
-        session, transcript.id, punctuate.get(settings.punct_params())
-    )
-    session.commit()
-    return {"written": written}
+    return {"written": refresh_readable_layer(session, transcript)}
 
 
 @router.get("/{transcript_id}/raw")

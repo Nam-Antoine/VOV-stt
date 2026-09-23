@@ -38,10 +38,12 @@ def _check_password(password: str) -> None:
 
 
 def _active_admins(session: Session) -> int:
-    return session.scalar(
-        select(func.count()).select_from(User)
-        .where(User.role == "admin", User.is_active.is_(True))
-    ) or 0
+    # Row locks, held to commit: two admins demoting each other at the same moment
+    # would otherwise both see "2 left" and leave none.
+    return len(session.scalars(
+        select(User.id).where(User.role == "admin", User.is_active.is_(True))
+        .with_for_update()
+    ).all())
 
 
 @router.get("", response_model=list[UserOut])

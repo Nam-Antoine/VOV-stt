@@ -1,7 +1,7 @@
 # Deploy to the VPS over SSH, after CI has gone green on main.
 #
 # Deliberately *not* a registry push: the box builds its own images. There is one
-# worker, one Postgres and ~64 MB of ONNX on local disk, and a pull-based deploy keeps
+# worker, one Postgres and ~525 MB of ONNX on local disk, and a pull-based deploy keeps
 # the model cache and /data volume untouched between releases (PLAN §0.2 — the raw JSON
 # is the record of truth and must survive every deploy).
 #
@@ -13,6 +13,10 @@
 # Optional:
 #   DEPLOY_PORT        ssh port (default 22)
 #   HEALTH_URL         health endpoint to poll (default http://localhost:8080/api/health)
+#
+# Off until the repository variable DEPLOY_ENABLED is "true" (Settings → Secrets and
+# variables → Actions → Variables), so a fork or a fresh repo without the secrets does
+# not get a red Deploy run on every push. The box's `origin` must point at this repo.
 name: Deploy
 
 on:
@@ -32,20 +36,21 @@ jobs:
     runs-on: ubuntu-latest
     # Never deploy a red build. workflow_dispatch has no upstream run to check.
     if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success')
     environment: production
     steps:
       - name: Check required secrets
         env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          USER: ${{ secrets.DEPLOY_USER }}
-          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           missing=
-          for v in HOST USER KEY DEPLOY_PATH; do
-            [ -n "${!v}" ] || missing="$missing DEPLOY_$v"
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
+            [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
             echo "::error::missing repository secrets:$missing"
@@ -70,7 +75,8 @@ jobs:
           USER: ${{ secrets.DEPLOY_USER }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-          SHA: ${{ github.sha }}
+          # workflow_run: the commit CI tested; workflow_dispatch: the tip of main.
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" "$USER@$HOST" \
               DEPLOY_PATH="$DEPLOY_PATH" SHA="$SHA" 'bash -euo pipefail -s' <<'REMOTE'
@@ -83,11 +89,15 @@ jobs:
 
             git fetch --quiet origin main
             git checkout --quiet main
-            git reset --hard "origin/main"
+            # The commit CI went green on, not whatever main has moved to since.
+            git reset --hard "$SHA"
             echo "deploying: $(git rev-parse HEAD)"
 
-            # Models are ~64 MB of ONNX outside git; fetch only what is missing.
+            # Models are ~525 MB of ONNX outside git; fetch only what is missing.
             make models
+
+            # Caddy serves web/dist, which is not in git: build it here.
+            (cd web && npm ci --no-audit --no-fund && npm run build)
 
             docker compose build
             docker compose up -d
@@ -137,6 +147,7 @@ jobs:
             PREV=$(cat .deploy-prev)
             echo "rolling back to $PREV"
             git reset --hard "$PREV"
+            (cd web && npm ci --no-audit --no-fund && npm run build)
             docker compose build
             docker compose up -d
             # Migrations are not auto-downgraded: 0001 drops every table on downgrade,

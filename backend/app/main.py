@@ -66,8 +66,15 @@ for module in (auth, episodes, jobs, transcripts, utterances, speakers, hotwords
     app.include_router(module.router, prefix="/api")
 
 
+#: Secret keys that ship in the repo (config default, .env.example).
+_PLACEHOLDER_KEYS = ("", "dev-only-change-me", "generate-with-openssl-rand-hex-32")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
+    if settings.auth_enabled and settings.secret_key in _PLACEHOLDER_KEYS:
+        # Anyone who knows the default key could sign a session cookie for any user.
+        raise RuntimeError("AUTH_ENABLED=true needs a real SECRET_KEY in .env")
     settings.ensure_dirs()
     missing = [name for name, ok in settings.models_present().items() if not ok]
     if missing:
@@ -95,6 +102,7 @@ def health() -> Health:
         models=models,
         worker_heartbeat_s=_worker_heartbeat_s(),
         version=__version__,
+        readable_available=settings.punct_available(),
     )
 
 

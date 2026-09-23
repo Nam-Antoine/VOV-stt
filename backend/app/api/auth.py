@@ -98,7 +98,15 @@ def change_password(body: PasswordChange, request: Request, response: Response,
     """Change your own password. Other sessions are signed out; this one is kept."""
     if not settings.auth_enabled:
         raise HTTPException(status_code=404, detail="đăng nhập đang tắt")
+    # Throttled like login: a stolen cookie must not buy unlimited password guesses.
+    key = f"user:{user.username}"
+    wait = login_throttle.retry_after(key)
+    if wait:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="sai quá nhiều lần — thử lại sau",
+                            headers={"Retry-After": str(wait)})
     if not verify_password(body.current_password, user.password_hash):
+        login_throttle.fail(key)
         raise HTTPException(status_code=400, detail="mật khẩu hiện tại không đúng")
     problem = password_problem(body.new_password)
     if problem:

@@ -44,6 +44,14 @@ function AccountLink({ me, compact = false }: { me: Me; compact?: boolean }) {
   )
 }
 
+function SignOutButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="btn-ghost btn-sm" aria-label="Đăng xuất" title="Đăng xuất">
+      <Signout className="h-4 w-4" />
+    </button>
+  )
+}
+
 function Wordmark() {
   return (
     <Link to="/" className="inline-flex shrink-0" title="Kho ngữ liệu VN-STT — Đàn bà 30+">
@@ -193,11 +201,7 @@ export default function App() {
             {accounts && <AccountLink me={me} />}
             <div className="ml-auto flex shrink-0 items-center">
               <ThemeToggle />
-              {accounts && (
-                <button onClick={signOut} className="btn-ghost btn-sm" aria-label="Đăng xuất" title="Đăng xuất">
-                  <Signout className="h-4 w-4" />
-                </button>
-              )}
+              {accounts && <SignOutButton onClick={signOut} />}
             </div>
           </div>
         </div>
@@ -212,11 +216,7 @@ export default function App() {
             <div className="ml-auto flex items-center">
               {accounts && <AccountLink me={me} compact />}
               <ThemeToggle />
-              {accounts && (
-                <button onClick={signOut} className="btn-ghost btn-sm" aria-label="Đăng xuất" title="Đăng xuất">
-                  <Signout className="h-4 w-4" />
-                </button>
-              )}
+              {accounts && <SignOutButton onClick={signOut} />}
             </div>
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 py-2">

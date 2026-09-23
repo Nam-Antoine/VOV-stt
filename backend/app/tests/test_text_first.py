@@ -146,3 +146,43 @@ def test_diarization_window_shift_is_recorded_in_raw_json():
     params = DiarParams(segmentation_model="seg.onnx", embedding_model="emb.onnx")
     assert params.window_shift_ratio == 0.2
     assert params.as_json()["window_shift_ratio"] == 0.2
+
+
+class _Rows:
+    """Just enough Session for withdraw_preliminary: rows by id, flush/commit counted."""
+
+    def __init__(self, *rows):
+        self.rows = {r.id: r for r in rows}
+        self.commits = 0
+
+    def get(self, model, key):
+        return self.rows.get(key)
+
+    def flush(self):
+        assert sum(r.is_current for r in self.rows.values()) <= 1, "two current rows"
+
+    def commit(self):
+        self.flush()
+        self.commits += 1
+
+
+def _row(id_, current, pending=False):
+    return SimpleNamespace(id=id_, is_current=current, speakers_pending=pending)
+
+
+def test_failed_diarization_restores_the_previous_transcript():
+    from app.worker import withdraw_preliminary
+
+    old, preview = _row("old", False), _row("new", True, pending=True)
+    session = _Rows(old, preview)
+    withdraw_preliminary(session, "new", "old")
+    assert old.is_current and not preview.is_current
+    assert session.commits == 1
+
+
+def test_failed_diarization_on_a_first_run_unlocks_the_preview():
+    from app.worker import withdraw_preliminary
+
+    preview = _row("new", True, pending=True)
+    withdraw_preliminary(_Rows(preview), "new", None)
+    assert preview.is_current and not preview.speakers_pending

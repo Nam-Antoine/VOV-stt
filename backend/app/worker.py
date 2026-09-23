@@ -219,28 +219,37 @@ def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
     stage = run_mod.run_asr(Path(episode.audio_path), work_dir=settings.audio_dir,
                             asr_params=asr_params, vad_params=vad_params)
 
+    preliminary_id = previous_id = None
     if diar_params is not None:
         # Text first: diarization is 70–80 % of the run, so publish the ASR words now
         # as their own immutable raw JSON + transcript row, flagged speakers_pending.
         # Same process, same job, strictly before diarization starts (CLAUDE.md
         # rule 6). The final run below replaces it as current; this row stays as
         # history and is never edited (PLAN §0.2).
-        publish_preliminary(session, episode=episode, stage=stage,
-                            run_kwargs=run_kwargs, hotwords_sha=hotwords_sha)
+        previous = loader.current_transcript(session, episode.id)
+        previous_id = previous.id if previous else None
+        preliminary_id = publish_preliminary(session, episode=episode, stage=stage,
+                                             run_kwargs=run_kwargs, hotwords_sha=hotwords_sha)
 
-    doc = run_mod.finish(stage, diar_params=diar_params, **run_kwargs)
-    transcript_id = _uuid.uuid4()
-    out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
-    run_mod.write_raw_json(doc, out_path)
+    try:
+        doc = run_mod.finish(stage, diar_params=diar_params, **run_kwargs)
+        transcript_id = _uuid.uuid4()
+        out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
+        run_mod.write_raw_json(doc, out_path)
 
-    loader.load_transcript(
-        session,
-        episode=episode,
-        doc=doc,
-        raw_json_path=out_path,
-        transcript_id=transcript_id,
-        hotwords_sha256=hotwords_sha,
-    )
+        loader.load_transcript(
+            session,
+            episode=episode,
+            doc=doc,
+            raw_json_path=out_path,
+            transcript_id=transcript_id,
+            hotwords_sha256=hotwords_sha,
+        )
+    except Exception:
+        if preliminary_id is not None:
+            session.rollback()
+            withdraw_preliminary(session, preliminary_id, previous_id)
+        raise
 
     readable_note = add_readable_layer(session, transcript_id)
 
@@ -287,11 +296,36 @@ def add_readable_layer(session, transcript_id) -> str:  # noqa: ANN001
     return f", readable {n} utt in {time.monotonic() - t0:.1f}s"
 
 
+def withdraw_preliminary(session, preliminary_id, previous_id) -> None:  # noqa: ANN001
+    """Diarization failed after the ASR-only preview went live: undo the preview.
+
+    The preview is read-only (``speakers_pending``), so leaving it current would lock
+    the episode and hide the transcript it replaced, possibly with verified work in it.
+    With an earlier transcript, that one becomes current again. Without one (a first
+    run), the preview stays current but editable: the text is complete, it just has
+    no speaker labels.
+    """
+    from .models import Transcript
+
+    preliminary = session.get(Transcript, preliminary_id)
+    if preliminary is None:
+        return
+    if previous_id is not None:
+        preliminary.is_current = False
+        session.flush()  # never two current rows, even inside the transaction
+        session.get(Transcript, previous_id).is_current = True
+        log.warning("diarization failed: restored the previous transcript as current")
+    else:
+        preliminary.speakers_pending = False
+        log.warning("diarization failed: keeping the text without speaker labels")
+    session.commit()
+
+
 def publish_preliminary(session, *, episode, stage, run_kwargs: dict,  # noqa: ANN001
-                        hotwords_sha: str | None) -> Path:
+                        hotwords_sha: str | None):
     """Write and load the ASR-only transcript, then commit so the API can serve it.
 
-    Returns the raw JSON path. The rows are read-only (``speakers_pending``) because
+    Returns the new transcript's id. The rows are read-only (``speakers_pending``) because
     their utterance boundaries ignore speaker changes and are about to be replaced.
     """
     import uuid as _uuid
@@ -317,7 +351,7 @@ def publish_preliminary(session, *, episode, stage, run_kwargs: dict,  # noqa: A
     session.commit()
     log.info("published %d words ahead of diarization -> %s",
              len(doc.get("words") or []), out_path)
-    return out_path
+    return transcript_id
 
 
 def handle_export(session, job: dict) -> str:  # noqa: ANN001

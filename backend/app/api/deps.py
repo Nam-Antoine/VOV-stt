@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_session
-from ..models import Episode, User
+from ..models import Episode, Transcript, User
 
 # v2: v1 cookies carried only a free-text editor name and must not be accepted.
 SESSION_SALT = "vnstt-session-v2"
@@ -83,3 +83,32 @@ def get_episode_or_404(episode_id: uuid.UUID,
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
     return episode
+
+
+# --- the readable layer ------------------------------------------------------------
+
+#: 409 detail while the current transcript is the ASR-only preview.
+SPEAKERS_PENDING = "đang xác định người nói — vui lòng chờ xử lý xong"
+
+
+def require_punct_model() -> None:
+    if not settings.punct_available():
+        raise HTTPException(status_code=503, detail="chưa cài mô hình thêm dấu câu")
+
+
+def refresh_readable_layer(session: Session, transcript: Transcript) -> int:
+    """Bring the punctuated layer up to date (stale turns only) and commit.
+
+    409 while speakers are pending: the preview's utterances are about to be replaced.
+    503 without the punctuation model. Returns the number of utterances rewritten.
+    """
+    from .. import readable as readable_mod
+    from ..pipeline import punctuate
+
+    if transcript.speakers_pending:
+        raise HTTPException(status_code=409, detail=SPEAKERS_PENDING)
+    require_punct_model()
+    written = readable_mod.refresh(session, transcript.id,
+                                   punctuate.get(settings.punct_params()))
+    session.commit()
+    return written

@@ -33,7 +33,6 @@ The punctuated turn is then cut back into utterances by word count.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -197,7 +196,6 @@ class Punctuator:
     params: PunctParams
     _heads: list[_Head] = field(repr=False, default_factory=list)
     _labels: list[str] = field(repr=False, default_factory=list)
-    model_sha256: str = ""
 
     @classmethod
     def load(cls, params: PunctParams) -> Punctuator:
@@ -205,9 +203,7 @@ class Punctuator:
         labels = heads[0].labels
         if any(h.labels != labels for h in heads):
             raise ValueError("ensemble members disagree on the label set")
-        p = cls(params=params, _heads=heads, _labels=labels)
-        p.model_sha256 = ",".join(_sha256(m.dir / m.file)[:16] for m in params.models)
-        return p
+        return cls(params=params, _heads=heads, _labels=labels)
 
     def _predict(self, tokens: list[str]) -> list[str]:
         """One action label per token (the ``$START`` slot is dropped).
@@ -346,7 +342,12 @@ def readable_turn(punctuator: Punctuator, texts: list[str]) -> list[str]:
         if not ws:
             out.append(text)
             continue
-        out.append(_rejoin(text, ws, restored[k:k + len(ws)]))
+        seg = restored[k:k + len(ws)]
+        # The engine writes all capitals, so anything else was typed by a verifier:
+        # their "Hà Nội" or "VOV2" stands; the model only decides the lower-case words.
+        if text != text.upper():
+            seg = [_keep_typed_case(w, r) for w, r in zip(ws, seg, strict=True)]
+        out.append(_rejoin(text, ws, seg))
         k += len(ws)
     # Capitalise the first word of a turn: it is the start of a sentence by definition.
     for idx, t in enumerate(out):
@@ -355,6 +356,14 @@ def readable_turn(punctuator: Punctuator, texts: list[str]) -> list[str]:
             out[idx] = t[:lead] + t[lead:lead + 1].upper() + t[lead + 1:]
             break
     return out
+
+
+def _keep_typed_case(typed: str, restored: str) -> str:
+    """``restored`` with ``typed``'s casing, unless the typed word was all lower case."""
+    core = strip_marks(typed)
+    if core == core.lower():
+        return restored
+    return core + restored[len(strip_marks(restored)):]
 
 
 def _rejoin(text: str, words: list[str], restored: list[str]) -> str:
@@ -381,13 +390,6 @@ def sentences(text: str) -> list[str]:
         out.append(" ".join(cur))
     return out
 
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 _cached: Punctuator | None = None

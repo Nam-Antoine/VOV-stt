@@ -119,7 +119,6 @@ export const api = {
   /** Bring the punctuated reading layer up to date (only changed turns are redone). */
   refreshReadable: (id: string) =>
     request<{ written: number }>(`/transcripts/${id}/readable`, { method: 'POST' }),
-  rawJsonUrl: (id: string) => `${BASE}/transcripts/${id}/raw`,
   audioUrl: (id: string) => `${BASE}/transcripts/${id}/audio`,
   /** Precomputed waveform; 404 when the server has no 16 kHz WAV to take it from. */
   getPeaks: (id: string) =>
@@ -158,6 +157,4 @@ export const api = {
   exportUrl: (episodeId: string, fmt: string) =>
     `${BASE}/episodes/${episodeId}/export.${fmt}`,
   allZipUrl: (fmt: string) => `${BASE}/exports/all.zip?fmt=${encodeURIComponent(fmt)}`,
-  corpusZipUrl: (tier: 'verified' | 'all' = 'verified') =>
-    `${BASE}/exports/corpus.zip?tier=${tier}`,
 }

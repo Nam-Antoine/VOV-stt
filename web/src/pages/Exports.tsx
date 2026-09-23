@@ -3,11 +3,15 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api/client'
-import ExportMenu from '../components/ExportMenu'
+import ExportMenu, { SPEAKERS_PENDING } from '../components/ExportMenu'
 
 export default function Exports() {
   const episodes = useQuery({ queryKey: ['episodes', ''], queryFn: () => api.listEpisodes() })
   const rows = (episodes.data ?? []).filter((e) => e.current_transcript_id)
+  // Shares the sidebar's health poll. Without the punctuation model every download 503s.
+  const health = useQuery({ queryKey: ['health'], queryFn: () => api.health(), retry: false })
+  const noModel = health.data?.readable_available === false
+  const NO_MODEL = 'Máy chủ chưa cài mô hình thêm dấu câu'
 
   return (
     <section>
@@ -19,7 +23,11 @@ export default function Exports() {
           </p>
         </div>
         <div className="sm:ml-auto">
-          <ExportMenu label="Tải tất cả" disabled={rows.length === 0} />
+          <ExportMenu
+            label="Tải tất cả"
+            disabled={rows.length === 0 || noModel}
+            disabledReason={noModel ? NO_MODEL : 'Chưa có tập nào được chép lời'}
+          />
         </div>
       </header>
 
@@ -41,7 +49,11 @@ export default function Exports() {
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-right">
-                  <ExportMenu episodeId={e.id} disabled={e.speakers_pending} />
+                  <ExportMenu
+                    episodeId={e.id}
+                    disabled={e.speakers_pending || noModel}
+                    disabledReason={noModel ? NO_MODEL : SPEAKERS_PENDING}
+                  />
                 </td>
               </tr>
             ))}
