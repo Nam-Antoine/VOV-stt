@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens. Light is the default; .dark on <html> swaps the same names.
+   Values are space-separated RGB channels so Tailwind's <alpha-value> works.
+   --------------------------------------------------------------------------- */
+:root {
+  /* "Lime on white", after the LineCheck upload screen the client picked: a white
+     page, #f5f5f5 wells, near-black ink and one electric-lime accent. Lime is a FILL
+     colour only (active nav, primary button, highlight cards) with black text on it —
+     as text or a thin line on white it is unreadable, so anything that draws the accent
+     as a foreground (focus rings, hover text, the played waveform, progress bars) uses
+     --accent-strong, a dark olive that clears 4.5:1 on white. */
+  --canvas:        255 255 255;   /* page */
+  --surface:       255 255 255;   /* raised: player, menus, cards */
+  --sunken:        245 245 245;   /* dropzone, table heads, highlights */
+  --line:          229 229 229;   /* hairlines */
+  --ink:            17  17  17;   /* primary text */
+  --muted:          96  96  96;   /* secondary text */
+  --faint:         118 118 118;   /* timestamps, captions */
+  --accent:        205 247  75;   /* electric lime — fills only */
+  --accent-ink:     17  17  17;   /* text on lime */
+  --accent-strong:  77 110   0;   /* olive — the accent as a foreground */
+
+  --wave:          214 214 214;
+  --wave-played:    77 110   0;
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Neutral charcoal. On a dark ground lime is legible as a foreground too, so
+     --accent-strong is the lime itself. */
+  --canvas:         18  18  18;
+  --surface:        26  26  26;
+  --sunken:         34  34  34;
+  --line:           52  52  52;
+  --ink:           240 240 240;
+  --muted:         176 176 176;
+  --faint:         140 140 140;
+  --accent:        205 247  75;
+  --accent-ink:     17  17  17;
+  --accent-strong: 205 247  75;
+
+  --wave:           70  70  70;
+  --wave-played:   205 247  75;
+
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-canvas text-ink font-sans antialiased;
+}
+
+/* Native checkboxes, radios and range inputs pick up the olive, not browser blue
+   (a lime box with a white tick would be invisible). */
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: rgb(var(--accent-strong));
+}
+
+/* The theme swap fades surfaces rather than snapping. Scoped to the elements that
+   actually carry one: a transcript renders a few thousand word <span>s, and putting
+   a transition on every descendant makes the theme toggle janky on a long episode. */
+body,
+.card,
+.btn,
+.field,
+.chip,
+header,
+table,
+thead,
+tr,
+article {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* PLAN §10: the editor must never auto-correct. These attributes are set on the
+   elements too; this is the belt to that pair of braces. */
+[contenteditable] {
+  -webkit-user-modify: read-write-plaintext-only;
+}
+
+/* Words below the confidence percentile (PLAN §10 "Show confidence"). */
+.word-low-conf {
+  @apply underline decoration-dotted decoration-[#c2410c] decoration-2 underline-offset-[5px];
+}
+
+@layer components {
+  /* --- buttons ---------------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5
+           text-sm font-medium transition-colors
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-strong
+           focus-visible:ring-offset-2 focus-visible:ring-offset-canvas
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-accent font-semibold text-accent-ink hover:brightness-95;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:bg-sunken hover:text-ink;
+  }
+  .btn-outline {
+    @apply btn border border-line bg-surface text-ink hover:bg-sunken;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  /* --- surfaces --------------------------------------------------------- */
+  .card {
+    @apply rounded-xl border border-line bg-surface;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+           text-ink placeholder:text-faint
+           focus:border-accent-strong focus:outline-none focus:ring-1 focus:ring-accent-strong;
+  }
+
+  .chip {
+    @apply inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[0.6875rem]
+           font-medium tracking-wide;
+  }
+
+  /* Small-caps section label — the editorial "PREFACE" marker. */
+  .eyebrow {
+    @apply text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-faint;
+  }
+
+  /* Page title in the reading face. */
+  .title {
+    @apply font-sans text-[1.625rem] font-medium leading-tight tracking-tight text-ink;
+  }
+
+  /* Loading placeholder that does not imply a progress value it does not have. */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-sunken;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 animate-shimmer;
+    content: '';
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--surface) / 0.6),
+      transparent
+    );
+  }
+}
+
+/* Keep the focused utterance clear of the sticky player when it is scrolled to. */
+.utterance-anchor {
+  scroll-margin-top: 13rem;
+}
