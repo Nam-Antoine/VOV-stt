@@ -1,0 +1,42 @@
+# Caddy — PLAN §6: /api/* → api:8000, everything else → the static Vite build.
+# SITE_ADDRESS=:80 for local dev; set a hostname in .env for automatic TLS.
+
+{
+	# Uncomment and set for Let's Encrypt on the VPS.
+	# email admin@example.com
+	admin off
+	# Host nginx terminates TLS for vovstt.io.vn and forwards here over the docker
+	# bridge; keep its X-Forwarded-Proto instead of overwriting it with "http".
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# API + OpenAPI docs live under /api.
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# Long uploads (episode audio) and long range reads.
+			flush_interval -1
+		}
+	}
+
+	# Static SPA build. try_files gives client-side routing a fallback.
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Episode audio can be large; do not buffer it.
+	request_body {
+		max_size 512MB
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
