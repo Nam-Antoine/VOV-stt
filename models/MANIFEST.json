@@ -1,0 +1,111 @@
+{
+  "manifest_version": 1,
+  "generated_at": "2026-09-23T09:54:41+00:00",
+  "asr": {
+    "name": "zipformer-30m-rnnt-6000h",
+    "hf_repo": "hynt/Zipformer-30M-RNNT-6000h",
+    "licence": "CC BY-NC-ND 4.0 — non-commercial; see LICENSE-NOTICE.md",
+    "dir": "zipformer-30m-rnnt-6000h"
+  },
+  "files": [
+    {
+      "path": "diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
+      "role": "diarization-segmentation",
+      "repo": "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
+      "remote": "model.onnx",
+      "bytes": 5992913,
+      "sha256": "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079",
+      "note": "pyannote/segmentation-3.0 ONNX export"
+    },
+    {
+      "path": "diarization/speaker-embedding/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "role": "diarization-embedding",
+      "repo": "csukuangfj/speaker-embedding-models",
+      "remote": "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "bytes": 28281164,
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+      "note": "speaker embedding extractor"
+    },
+    {
+      "path": "punctuation/vibert-capu/vibert-capu.onnx",
+      "role": "punctuation-model",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vibert-capu.onnx",
+      "bytes": 459449409,
+      "sha256": "269a59c50977cef010292b1530a77df3073420ff6be409c1a55eeb77a8444e44",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
+    },
+    {
+      "path": "punctuation/vibert-capu/vocab.txt",
+      "role": "punctuation-vocab",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vocab.txt",
+      "bytes": 254703,
+      "sha256": "b32ccb4ca8bee5eda7a0f55f7adebaa515be742c9f765151ffefcd29fcb542a1",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
+    },
+    {
+      "path": "punctuation/vibert-capu/vocabulary/labels.txt",
+      "role": "punctuation-labels",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vocabulary/labels.txt",
+      "bytes": 248,
+      "sha256": "a31075cfa185b5d24c3b65c009ad0740636b286090f78419eaba2d34202c2b45",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
+    },
+    {
+      "path": "vad/silero_vad.onnx",
+      "role": "vad",
+      "repo": "csukuangfj/vad",
+      "remote": "silero_vad.onnx",
+      "bytes": 1807522,
+      "sha256": "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28",
+      "note": "Silero VAD v4, MIT"
+    },
+    {
+      "path": "zipformer-30m-rnnt-6000h/bpe.model",
+      "role": "asr-bpe",
+      "repo": "hynt/Zipformer-30M-RNNT-6000h",
+      "remote": "bpe.model",
+      "bytes": 268106,
+      "sha256": "002894e7a82d80ffa5e25008ec8c5496159db804005e2103de96b01b4c13d445",
+      "note": "sentencepiece vocab; needed for bpe hotwords (PLAN §2)"
+    },
+    {
+      "path": "zipformer-30m-rnnt-6000h/decoder-epoch-20-avg-10.int8.onnx",
+      "role": "asr-decoder",
+      "repo": "hynt/Zipformer-30M-RNNT-6000h",
+      "remote": "decoder-epoch-20-avg-10.int8.onnx",
+      "bytes": 1308690,
+      "sha256": "b491630c33e76146b7296ab68cee5ae3a8d572732d36a552ee231d4419e06d32",
+      "note": ""
+    },
+    {
+      "path": "zipformer-30m-rnnt-6000h/encoder-epoch-20-avg-10.int8.onnx",
+      "role": "asr-encoder",
+      "repo": "hynt/Zipformer-30M-RNNT-6000h",
+      "remote": "encoder-epoch-20-avg-10.int8.onnx",
+      "bytes": 27699063,
+      "sha256": "8ef5286dd427eb108055c2ddc1982aa31e544706072d5ea228729292dacade68",
+      "note": ""
+    },
+    {
+      "path": "zipformer-30m-rnnt-6000h/joiner-epoch-20-avg-10.int8.onnx",
+      "role": "asr-joiner",
+      "repo": "hynt/Zipformer-30M-RNNT-6000h",
+      "remote": "joiner-epoch-20-avg-10.int8.onnx",
+      "bytes": 1033417,
+      "sha256": "7311d2e17b810ecea515d79c71cc4668af8759256a06fa01d27047772320c821",
+      "note": ""
+    },
+    {
+      "path": "zipformer-30m-rnnt-6000h/tokens.txt",
+      "role": "asr-tokens",
+      "repo": "hynt/Zipformer-30M-RNNT-6000h",
+      "remote": "config.json",
+      "bytes": 23238,
+      "sha256": "ca8171f8bbd516c050b627582f2125c8f5f1f6ed967ab41b0fa9aae2cf61b492",
+      "note": "HF calls this config.json; it is the tokens file, not JSON"
+    }
+  ]
+}
