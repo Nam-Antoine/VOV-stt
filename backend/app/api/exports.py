@@ -25,8 +25,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import loader
+from .. import readable as readable_mod
+from ..config import settings
 from ..db import get_session
 from ..exports import TIER_ASR, TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
+from ..exports import readable as readable_export
 from ..models import Episode
 from .deps import require_editor
 
@@ -45,6 +48,13 @@ FORMATS = {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "docx",
     ),
+    # Reading copies: punctuation + capitals from the derived readable layer. Not corpus.
+    "readable.txt": ("text/plain; charset=utf-8", "txt"),
+    "readable.docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "docx",
+    ),
+    "readable.pdf": ("application/pdf", "pdf"),
 }
 
 
@@ -52,13 +62,13 @@ def _load(session: Session, episode_id: uuid.UUID):
     """``(episode, raw doc, speakers, overrides)`` for the current transcript."""
     episode = session.get(Episode, episode_id)
     if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
     transcript = loader.current_transcript(session, episode.id)
     if transcript is None:
-        raise HTTPException(status_code=409, detail="episode has no transcript yet")
+        raise HTTPException(status_code=409, detail="tập này chưa có bản chép lời")
     path = Path(transcript.raw_json_path)
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"raw JSON missing: {path}")
+        raise HTTPException(status_code=404, detail=f"thiếu file JSON gốc: {path}")
     doc = json.loads(path.read_text(encoding="utf-8"))
     return (
         episode,
@@ -99,7 +109,38 @@ def render(fmt: str, doc: dict, speakers: dict, overrides: dict,
         return docx.render_bytes(
             verified_doc, tier=TIER_VERIFIED, speakers=speakers, title=title
         )
-    raise HTTPException(status_code=404, detail=f"unknown format {fmt!r}")
+    raise HTTPException(status_code=404, detail=f"định dạng không hỗ trợ {fmt!r}")
+
+
+def _readable(session: Session, episode_id: uuid.UUID, fmt: str):
+    """Refresh stale turns of the readable layer, then lay it out."""
+    from ..pipeline import punctuate
+
+    episode = session.get(Episode, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
+    transcript = loader.current_transcript(session, episode.id)
+    if transcript is None:
+        raise HTTPException(status_code=409, detail="tập này chưa có bản chép lời")
+    if transcript.speakers_pending:
+        raise HTTPException(status_code=409,
+                            detail="đang xác định người nói — vui lòng chờ xử lý xong")
+    if not settings.punct_available():
+        raise HTTPException(status_code=503, detail="chưa cài mô hình thêm dấu câu")
+    readable_mod.refresh(session, transcript.id, punctuate.get(settings.punct_params()))
+    session.commit()
+    items = [
+        {"speaker": u.speaker, "text": u.text_readable}
+        for u in readable_mod.ordered_utterances(session, transcript.id)
+    ]
+    speakers = loader.speaker_labels(session, episode.id)
+    title = episode.title or episode.slug
+    if fmt == "readable.txt":
+        return episode, readable_export.render_txt(
+            items, speakers=speakers, title=title).encode("utf-8")
+    if fmt == "readable.pdf":
+        return episode, readable_export.render_pdf(items, speakers=speakers, title=title)
+    return episode, readable_export.render_docx(items, speakers=speakers, title=title)
 
 
 @router.get("/episodes/{episode_id}/export.{fmt}")
@@ -112,12 +153,15 @@ def export_episode(
     if fmt not in FORMATS:
         raise HTTPException(
             status_code=404,
-            detail=f"unknown format {fmt!r}; expected one of {', '.join(FORMATS)}",
+            detail=f"định dạng không hỗ trợ {fmt!r}; chỉ nhận: {', '.join(FORMATS)}",
         )
-    episode, doc, speakers, overrides = _load(session, episode_id)
     media_type, suffix = FORMATS[fmt]
-    title = episode.title or episode.slug
-    body = render(fmt, doc, speakers, overrides, title)
+    if fmt.startswith("readable."):
+        episode, body = _readable(session, episode_id, fmt)
+    else:
+        episode, doc, speakers, overrides = _load(session, episode_id)
+        title = episode.title or episode.slug
+        body = render(fmt, doc, speakers, overrides, title)
     return Response(
         content=body,
         media_type=media_type,
@@ -184,4 +228,45 @@ def corpus_zip(
         buf,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="corpus-{tier}.zip"'},
+    )
+
+
+@router.get("/exports/all.zip")
+def all_readable_zip(
+    fmt: str = Query("readable.docx", pattern=r"^readable\.(docx|pdf|txt)$"),
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> StreamingResponse:
+    """Every finished episode's reading copy in one format, one file per episode.
+
+    Episodes still being transcribed or waiting for speaker labels are skipped, and
+    listed in the zip's README so nobody wonders where they went.
+    """
+    suffix = FORMATS[fmt][1]
+    buf = io.BytesIO()
+    skipped: list[str] = []
+    used: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        for episode in session.scalars(select(Episode).order_by(Episode.slug)):
+            try:
+                _, body = _readable(session, episode.id, fmt)
+            except HTTPException as exc:
+                skipped.append(f"{episode.title or episode.slug}: {exc.detail}")
+                continue
+            name = episode.slug
+            while f"{name}.{suffix}" in used:  # slugs are unique; guard anyway
+                name += "_"
+            used.add(f"{name}.{suffix}")
+            archive.writestr(f"{name}.{suffix}", body)
+        if skipped:
+            archive.writestr(
+                "CHUA-XONG.txt",
+                "Các tập chưa có trong file này (chưa xử lý xong):\n\n"
+                + "\n".join(skipped) + "\n",
+            )
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="tat-ca-{suffix}.zip"'},
     )

@@ -20,8 +20,11 @@ class Settings(BaseSettings):
     )
 
     # --- app ---------------------------------------------------------------
-    app_password: str = "change-me"
     secret_key: str = "dev-only-change-me"
+    #: Off: no login, everyone is treated as an admin and edits are recorded as
+    #: ``open_editor``. On: per-user accounts (app/api/auth.py, app/api/users.py).
+    auth_enabled: bool = False
+    open_editor: str = "verifier"
     session_cookie_name: str = "vnstt_session"
     session_max_age_s: int = 30 * 24 * 3600
     log_level: str = "INFO"
@@ -70,7 +73,20 @@ class Settings(BaseSettings):
     diar_num_clusters: int = 0
     diar_min_duration_on: float = 0.3
     diar_min_duration_off: float = 0.5
+    #: pyannote window step (fraction of 10 s). 0.2 halves diarization time; see DiarParams.
+    diar_window_shift_ratio: float = 0.2
     diar_num_threads: int = 2
+
+    # --- readable layer: punctuation + capitalisation (derived, never the corpus) ---
+    #: ViBERT-capu ONNX (CC BY-SA 4.0). Missing model = readable layer off, nothing else.
+    punct_model_dir: Path = Path("/data/models/punctuation/vibert-capu")
+    punct_model_file: str = "vibert-capu.onnx"
+    punct_num_threads: int = 2
+    #: Tuned on the first half of the client's hand-punctuated reference, scored on the
+    #: unseen second half (scripts/punct_eval.py). stop_bias fixes the model's habit of
+    #: writing a comma where the reference ends the sentence.
+    punct_keep_bias: float = 0.0
+    punct_stop_bias: float = 1.0
 
     # --- worker ------------------------------------------------------------
     worker_poll_interval_s: float = 2.0
@@ -133,8 +149,22 @@ class Settings(BaseSettings):
             num_clusters=self.diar_num_clusters,
             min_duration_on=self.diar_min_duration_on,
             min_duration_off=self.diar_min_duration_off,
+            window_shift_ratio=self.diar_window_shift_ratio,
             num_threads=self.diar_num_threads,
         )
+
+    def punct_params(self):
+        from .pipeline.punctuate import ModelSpec, PunctParams
+
+        return PunctParams(
+            models=(ModelSpec(self.punct_model_dir, self.punct_model_file, "wordpiece"),),
+            num_threads=self.punct_num_threads,
+            keep_bias=self.punct_keep_bias,
+            stop_bias=self.punct_stop_bias,
+        )
+
+    def punct_available(self) -> bool:
+        return (self.punct_model_dir / self.punct_model_file).exists()
 
     def models_present(self) -> dict[str, bool]:
         """Used by ``/api/health`` (PLAN §11 T5)."""
@@ -145,6 +175,7 @@ class Settings(BaseSettings):
             "vad": self.vad_model.exists(),
             "diar_segmentation": self.diar_segmentation_model.exists(),
             "diar_embedding": self.diar_embedding_model.exists(),
+            "punctuation": self.punct_available(),
         }
 
 

@@ -41,7 +41,11 @@ services:
       - ./data:/data
       - ./models:/data/models:ro      # populated by scripts/download_models.py
       - ./backend:/srv/backend        # dev convenience; harmless in prod
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Behind Caddy (and host nginx for TLS): trust X-Forwarded-Proto so the session
+    # cookie is marked Secure on https. The api port is not published, so only
+    # containers on this network can reach it.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)\""]
       interval: 30s

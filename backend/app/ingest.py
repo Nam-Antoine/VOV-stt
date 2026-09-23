@@ -110,7 +110,7 @@ def create_episode(
     suffix = Path(filename).suffix.lower()
     if suffix not in AUDIO_SUFFIXES:
         raise ValueError(
-            f"unsupported audio type {suffix!r}; expected one of "
+            f"định dạng âm thanh không hỗ trợ {suffix!r}; chỉ nhận: "
             + ", ".join(sorted(AUDIO_SUFFIXES))
         )
 

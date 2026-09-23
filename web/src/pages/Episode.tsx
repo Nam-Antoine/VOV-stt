@@ -16,11 +16,12 @@ import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
 import ExportMenu from '../components/ExportMenu'
-import { Spinner } from '../components/Icons'
+import { ArrowLeft, Spinner } from '../components/Icons'
 import Shortcuts from '../components/Shortcuts'
 import SpeakerLegend from '../components/SpeakerLegend'
 import TranscriptEditor from '../components/TranscriptEditor'
 import WaveformPlayer, { type WaveformPlayerHandle } from '../components/WaveformPlayer'
+import { StatusChip } from './Episodes'
 import type { Utterance } from '../api/types'
 
 export default function Episode() {
@@ -33,6 +34,21 @@ export default function Episode() {
   const [activeIndex, setActiveIndex] = useState(0)
   const [follow, setFollow] = useState(true)
   const [showKeys, setShowKeys] = useState(false)
+  // The client reads punctuated text; default on, remembered per browser.
+  const [readable, setReadable] = useState(() => {
+    try {
+      return localStorage.getItem('vnstt.readable') !== '0'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('vnstt.readable', readable ? '1' : '0')
+    } catch {
+      /* private mode: not remembered, still works */
+    }
+  }, [readable])
 
   const episode = useQuery({
     queryKey: ['episode', id],
@@ -50,6 +66,16 @@ export default function Episode() {
     enabled: !!transcriptId,
   })
 
+  // Fetched before the player mounts so wavesurfer is created once, with peaks, and
+  // never starts a full download-and-decode it would then throw away.
+  const peaks = useQuery({
+    queryKey: ['peaks', transcriptId],
+    queryFn: () => api.getPeaks(transcriptId!),
+    enabled: !!transcriptId,
+    staleTime: Infinity,
+    retry: false,
+  })
+
   const saveUtterance = useMutation({
     mutationFn: ({ utteranceId, text }: { utteranceId: string; text: string }) =>
       api.patchUtterance(utteranceId, { text_verified: text }),
@@ -58,6 +84,28 @@ export default function Episode() {
       queryClient.invalidateQueries({ queryKey: ['episode', id] })
     },
   })
+
+  // Fills in punctuation for utterances that have none yet or were just edited. Only
+  // changed speaker turns are recomputed server-side, so after an edit it is quick;
+  // an episode transcribed before this existed takes ~20 s once.
+  const punctuate = useMutation({
+    mutationFn: () => api.refreshReadable(transcriptId!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] }),
+  })
+  const staleSig = (transcript.data?.utterances ?? [])
+    .filter((u) => u.text_readable === null)
+    .map((u) => u.id)
+    .join(',')
+  const lastPunctuated = useRef('')
+  useEffect(() => {
+    const t = transcript.data
+    if (!readable || !t || !t.readable_available || t.speakers_pending) return
+    if (!staleSig || punctuate.isPending) return
+    const sig = `${t.id}:${staleSig}`
+    if (lastPunctuated.current === sig) return // tried this exact state already
+    lastPunctuated.current = sig
+    punctuate.mutate()
+  }, [readable, transcript.data, staleSig, punctuate])
 
   const revert = useMutation({
     mutationFn: (utteranceId: string) => api.revertUtterance(utteranceId),
@@ -147,39 +195,46 @@ export default function Episode() {
   if (episode.isLoading) {
     return (
       <div className="flex items-center gap-2 text-muted">
-        <Spinner className="h-4 w-4" /> Loading…
+        <Spinner className="h-4 w-4" /> Đang tải…
       </div>
     )
   }
   if (episode.isError) {
     return (
       <p className="text-rose-600">
-        {episode.error instanceof ApiError ? episode.error.detail : 'Failed to load'}
+        {episode.error instanceof ApiError ? episode.error.detail : 'Không tải được dữ liệu'}
       </p>
     )
   }
 
   const ep = episode.data!
+  // Text-first preview: ASR text is in, diarization is still running (edits would 409).
+  const pending = ep.speakers_pending || transcript.data?.speakers_pending === true
   const verifiedCount = utterances.filter((u: Utterance) => u.text_verified !== null).length
   const pct = utterances.length ? (verifiedCount / utterances.length) * 100 : 0
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       {showKeys && <Shortcuts onClose={() => setShowKeys(false)} />}
 
-      <header>
-        <Link to="/episodes" className="text-sm text-muted hover:text-ink">
-          ← Episodes
+      <header className="pb-2">
+        <Link
+          to="/episodes"
+          className="inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
         </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h1 className="text-xl font-semibold">{ep.title || ep.slug}</h1>
-          <span className="text-sm text-faint">{ep.status}</span>
+        <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <h1 className="title min-w-0 break-words">{ep.title || ep.slug}</h1>
+          <StatusChip status={ep.status} speakersPending={pending} />
           {utterances.length > 0 && (
-            <span className="ml-auto flex items-center gap-2 text-sm text-muted">
+            <span className="flex w-full items-center gap-3 text-sm text-muted sm:ml-auto sm:w-auto">
               <span className="tabular-nums">
-                {verifiedCount} / {utterances.length} verified
+                <span className="font-reading text-lg text-ink">{verifiedCount}</span>
+                <span className="text-faint"> / {utterances.length} đã duyệt</span>
               </span>
-              <span className="h-1.5 w-24 overflow-hidden rounded-full bg-sunken">
+              <span className="h-1 flex-1 overflow-hidden rounded-full bg-sunken sm:w-32 sm:flex-none">
                 <span
                   className="block h-full rounded-full bg-verified transition-[width]"
                   style={{ width: `${pct}%` }}
@@ -191,18 +246,16 @@ export default function Episode() {
       </header>
 
       {!transcriptId && (
-        <div className="card border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
-          <p className="font-medium text-amber-900 dark:text-amber-200">
-            No transcript yet.
-          </p>
-          <p className="mt-1 text-amber-800 dark:text-amber-300/80">
+        <div className="card p-6 text-sm">
+          <p className="font-reading text-lg text-ink">Chưa có bản chép lời.</p>
+          <p className="mt-1 text-muted">
             {ep.status === 'queued' || ep.status === 'processing'
-              ? 'A job is running — this page refreshes itself.'
-              : 'Press Transcribe to queue this episode.'}
+              ? 'Đang xử lý — trang sẽ tự làm mới.'
+              : 'Bấm Chép lời để đưa tập này vào hàng chờ.'}
           </p>
           {ep.status !== 'queued' && ep.status !== 'processing' && (
             <button onClick={() => transcribe.mutate()} className="btn-primary mt-3">
-              Transcribe
+              Chép lời
             </button>
           )}
         </div>
@@ -210,21 +263,39 @@ export default function Episode() {
 
       {transcriptId && (
         <>
-          {/* top-14 clears the sticky app header. */}
-          <div className="sticky top-14 z-20 -mx-1 bg-canvas/90 px-1 py-1 backdrop-blur">
-            <WaveformPlayer
-              ref={player}
-              src={api.audioUrl(transcriptId)}
-              onTimeUpdate={setCurrentTime}
-            />
+          {/* Clears the sticky two-row header below lg; on desktop the nav is a sidebar. */}
+          <div className="sticky top-[5.875rem] z-20 -mx-1 bg-canvas/90 px-1 py-1 backdrop-blur lg:top-0">
+            {peaks.isPending ? (
+              <div className="card p-3">
+                <div className="skeleton h-[72px] w-full" />
+                <div className="mt-2 h-9" />
+              </div>
+            ) : (
+              <WaveformPlayer
+                ref={player}
+                src={api.audioUrl(transcriptId)}
+                peaks={peaks.data ?? null}
+                onTimeUpdate={setCurrentTime}
+              />
+            )}
           </div>
 
-          <div className="card flex flex-wrap items-center gap-x-4 gap-y-3 p-3">
-            <SpeakerLegend
-              speakers={transcript.data?.speakers ?? []}
-              utterances={utterances}
-              onRename={(cluster, label) => rename.mutate({ cluster, label })}
-            />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line pb-4">
+            {pending ? (
+              <p className="flex items-center gap-2 text-sm text-muted">
+                <span
+                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong"
+                  aria-hidden="true"
+                />
+                Đang xác định người nói…
+              </p>
+            ) : (
+              <SpeakerLegend
+                speakers={transcript.data?.speakers ?? []}
+                utterances={utterances}
+                onRename={(cluster, label) => rename.mutate({ cluster, label })}
+              />
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 text-sm text-muted">
                 <input
@@ -233,8 +304,25 @@ export default function Episode() {
                   onChange={(e) => setFollow(e.target.checked)}
                   className="accent-accent"
                 />
-                Follow
+                Tự cuộn
               </label>
+              {transcript.data?.readable_available && !pending && (
+                <label
+                  className="flex items-center gap-1.5 text-sm text-muted"
+                  title="Thêm dấu câu và viết hoa để dễ đọc. Chỉ là bản đọc — văn bản nguyên văn không đổi."
+                >
+                  <input
+                    type="checkbox"
+                    checked={readable}
+                    onChange={(e) => setReadable(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  Hiện dấu câu
+                  {readable && punctuate.isPending && (
+                    <span className="text-xs text-faint">(đang thêm…)</span>
+                  )}
+                </label>
+              )}
               <ConfidenceToggle
                 enabled={showConf}
                 onChange={setShowConf}
@@ -245,23 +333,33 @@ export default function Episode() {
               <button
                 onClick={() => setShowKeys(true)}
                 className="btn-ghost btn-sm"
-                title="Keyboard shortcuts (?)"
+                title="Phím tắt (?)"
               >
                 ?
               </button>
-              <ExportMenu episodeId={id} />
+              <ExportMenu episodeId={id} disabled={pending} />
             </div>
           </div>
 
-          <p className="text-xs text-faint">
-            Click a word to play from it. Text is stored exactly as typed — no
-            spellcheck, no autocorrect. Press <b>?</b> for shortcuts.
+          {pending && (
+            <div className="rounded-xl border border-line bg-accent/20 px-4 py-3 text-sm">
+              <p className="font-medium text-ink">Đã có văn bản — đang xác định người nói.</p>
+              <p className="mt-0.5 text-muted">
+                Bạn có thể nghe và đọc ngay. Việc sửa sẽ mở khi phân tách người nói xong; trang
+                tự làm mới.
+              </p>
+            </div>
+          )}
+
+          <p className="text-xs leading-relaxed text-faint">
+            Nhấp vào một từ để phát từ vị trí đó. Văn bản được lưu đúng như khi gõ — không
+            kiểm tra chính tả, không tự sửa. Bấm <b>?</b> để xem phím tắt.
           </p>
 
           {transcript.isLoading ? (
             <div className="space-y-2">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="skeleton h-24 w-full rounded-xl" />
+                <div key={i} className="skeleton h-20 w-full rounded-lg" />
               ))}
             </div>
           ) : (
@@ -276,6 +374,8 @@ export default function Episode() {
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
               followPlayhead={follow}
+              readOnly={pending}
+              readable={readable && !pending}
               savingId={
                 saveUtterance.isPending ? (saveUtterance.variables?.utteranceId ?? null) : null
               }

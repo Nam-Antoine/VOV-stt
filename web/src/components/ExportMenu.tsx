@@ -1,25 +1,32 @@
-// Seven export formats, one of which is the one people actually want.
+// Downloads: the punctuated reading copy, laid out like the client's reference
+// document (speaker heading, one sentence per line). One button opens a menu of the
+// three formats.
 //
-// The client's deliverable is a Word document, so .docx is a primary button and the
-// other six live behind a menu. A row of seven equal buttons made the common case as
-// hard to find as ELAN XML.
+// The verbatim corpus formats (json, csv, srt, eaf…) still exist at
+// /api/episodes/{id}/export.{fmt}; they are not offered here because the engine writes
+// them in capitals without punctuation, which is not what anyone reading wants.
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import { Chevron, Download } from './Icons'
 
-const PRIMARY = { fmt: 'docx', label: 'Word (.docx)' }
-
-const SECONDARY = [
-  { fmt: 'txt', label: 'Plain text', hint: 'one line per utterance' },
-  { fmt: 'verified.json', label: 'Verified JSON', hint: 'human layer applied' },
-  { fmt: 'json', label: 'Raw JSON', hint: 'engine output, immutable' },
-  { fmt: 'csv', label: 'Word CSV', hint: 'per word, with timings' },
-  { fmt: 'srt', label: 'Subtitles', hint: 'SubRip' },
-  { fmt: 'eaf', label: 'ELAN', hint: 'annotation tiers' },
+const FORMATS = [
+  { fmt: 'readable.docx', label: 'Word (.docx)', hint: 'Mở và sửa được trong Word' },
+  { fmt: 'readable.pdf', label: 'PDF', hint: 'Để in hoặc gửi đi, không sửa được' },
+  { fmt: 'readable.txt', label: 'Văn bản (.txt)', hint: 'Chữ thuần, mỗi câu một dòng' },
 ]
 
-export default function ExportMenu({ episodeId }: { episodeId: string }) {
+/** One episode's downloads; without ``episodeId`` it zips every finished episode. */
+export default function ExportMenu({
+  episodeId,
+  disabled = false,
+  label = 'Tải về',
+}: {
+  episodeId?: string
+  disabled?: boolean
+  label?: string
+}) {
+  const href = (fmt: string) => (episodeId ? api.exportUrl(episodeId, fmt) : api.allZipUrl(fmt))
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
 
@@ -40,35 +47,33 @@ export default function ExportMenu({ episodeId }: { episodeId: string }) {
   }, [open])
 
   return (
-    <div ref={wrap} className="relative flex items-center">
-      <a
-        href={api.exportUrl(episodeId, PRIMARY.fmt)}
-        className="btn-primary rounded-r-none"
-        download
-      >
-        <Download className="h-3.5 w-3.5" />
-        {PRIMARY.label}
-      </a>
+    <div
+      ref={wrap}
+      className={`relative inline-flex items-center ${disabled ? 'pointer-events-none opacity-50' : ''}`}
+      title={disabled ? 'Tải về được khi xác định người nói xong' : undefined}
+    >
       <button
         onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Other export formats"
-        className="btn-primary rounded-l-none border-l border-accent-ink/20 !px-1.5"
+        className="btn-primary"
       >
+        <Download className="h-3.5 w-3.5" />
+        {label}
         <Chevron className={`h-4 w-4 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-60 animate-slide-up overflow-hidden rounded-xl border border-line bg-surface shadow-lg"
+          className="absolute right-0 top-full z-20 mt-1 w-60 animate-slide-up overflow-hidden rounded-xl border border-line bg-surface text-left shadow-lg"
         >
-          {SECONDARY.map((f) => (
+          {FORMATS.map((f) => (
             <a
               key={f.fmt}
               role="menuitem"
-              href={api.exportUrl(episodeId, f.fmt)}
+              href={href(f.fmt)}
               download
               onClick={() => setOpen(false)}
               className="block px-3 py-2 text-sm hover:bg-sunken"

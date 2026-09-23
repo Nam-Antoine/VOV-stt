@@ -68,10 +68,11 @@ counts back to 3 and dropping the `cpus` cap.
 ## Quick start
 
 ```bash
-cp .env.example .env            # edit APP_PASSWORD and SECRET_KEY
+cp .env.example .env            # edit SECRET_KEY
 make models                     # ~64 MB of ONNX into ./models
 make test                       # unit tests, including the verbatim gate
 make dev                        # db + api + worker + caddy
+docker compose exec api python -m app.users create <you> --admin   # first account
 ```
 
 Transcribe one file without the web stack:

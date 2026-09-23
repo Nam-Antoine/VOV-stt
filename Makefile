@@ -25,7 +25,7 @@ help: ## Show this help
 
 .env:
 	@cp .env.example .env
-	@echo ".env created from .env.example — edit APP_PASSWORD and SECRET_KEY before deploying."
+	@echo ".env created from .env.example — edit SECRET_KEY before deploying."
 
 env: .env ## Create .env from .env.example if missing
 

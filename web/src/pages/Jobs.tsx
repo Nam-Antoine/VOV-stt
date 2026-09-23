@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api } from '../api/client'
+import { JOB_KIND_LABEL, JOB_STATUS_LABEL } from '../labels'
 import type { Job } from '../api/types'
 
 const STATUS_STYLE: Record<string, string> = {
@@ -43,9 +44,9 @@ export default function Jobs() {
   return (
     <section>
       <header className="mb-4 flex items-baseline gap-3">
-        <h1 className="text-xl font-semibold">Jobs</h1>
+        <h1 className="title">Tác vụ</h1>
         <span className="text-sm text-muted">
-          one worker, one episode at a time — {queued} waiting
+          một tiến trình, xử lý từng tập một — {queued} đang chờ
         </span>
       </header>
 
@@ -53,22 +54,22 @@ export default function Jobs() {
         <table className="w-full text-sm">
           <thead className="bg-sunken text-left text-xs uppercase text-muted">
             <tr>
-              <th className="px-3 py-2">Kind</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Attempts</th>
-              <th className="px-3 py-2">Created</th>
+              <th className="px-3 py-2">Loại</th>
+              <th className="px-3 py-2">Trạng thái</th>
+              <th className="px-3 py-2">Số lần thử</th>
+              <th className="px-3 py-2">Tạo lúc</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {rows.map((j) => (
               <tr key={j.id} className="border-t border-line align-top">
-                <td className="px-3 py-2">{j.kind}</td>
+                <td className="px-3 py-2">{JOB_KIND_LABEL[j.kind] ?? j.kind}</td>
                 <td className="px-3 py-2">
                   <span
                     className={`chip ${STATUS_STYLE[j.status] ?? ''}`}
                   >
-                    {j.status}
+                    {JOB_STATUS_LABEL[j.status] ?? j.status}
                   </span>
                   {j.error && (
                     <div className="mt-1 max-w-xl text-xs text-rose-700">{j.error}</div>
@@ -78,21 +79,21 @@ export default function Jobs() {
                   {j.attempts} / {j.max_attempts}
                 </td>
                 <td className="px-3 py-2 text-xs text-muted">
-                  {new Date(j.created_at).toLocaleString()}
+                  {new Date(j.created_at).toLocaleString('vi-VN')}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <button
                     onClick={() => setOpenLog(openLog === j.id ? null : j.id)}
                     className="btn-outline btn-sm"
                   >
-                    {openLog === j.id ? 'hide log' : 'log'}
+                    {openLog === j.id ? 'Ẩn nhật ký' : 'Nhật ký'}
                   </button>
                   {j.status === 'failed' && (
                     <button
                       onClick={() => retry.mutate(j.id)}
                       className="btn-outline btn-sm ml-1"
                     >
-                      retry
+                      Thử lại
                     </button>
                   )}
                 </td>
@@ -101,7 +102,7 @@ export default function Jobs() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-3 py-8 text-center text-faint">
-                  No jobs yet.
+                  Chưa có tác vụ nào.
                 </td>
               </tr>
             )}
@@ -112,7 +113,7 @@ export default function Jobs() {
       {/* The log pane is deliberately dark in both themes: it is terminal output. */}
       {openLog && (
         <pre className="mt-3 max-h-64 overflow-auto rounded-xl border border-line bg-slate-900 p-3 text-xs text-slate-100">
-          {log.data?.log || 'no output yet'}
+          {log.data?.log || 'chưa có nội dung'}
         </pre>
       )}
     </section>

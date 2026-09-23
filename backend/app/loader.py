@@ -41,8 +41,13 @@ def load_transcript(
     raw_json_path: Path,
     transcript_id: uuid.UUID | None = None,
     hotwords_sha256: str | None = None,
+    speakers_pending: bool = False,
 ) -> Transcript:
-    """Insert one transcript and its derived rows. Returns the new transcript."""
+    """Insert one transcript and its derived rows. Returns the new transcript.
+
+    ``speakers_pending`` marks the ASR-only transcript the worker publishes before
+    diarization finishes (see :func:`app.pipeline.run.preliminary_doc`).
+    """
     engine_block = doc.get("engine") or {}
     transcript = Transcript(
         id=transcript_id or uuid.uuid4(),
@@ -54,6 +59,7 @@ def load_transcript(
         or (engine_block.get("params") or {}).get("hotwords_sha256"),
         raw_json_path=str(raw_json_path),
         is_current=True,
+        speakers_pending=speakers_pending,
     )
 
     # Demote the previous current transcript before inserting the new one, so there is
@@ -104,8 +110,11 @@ def load_transcript(
             ],
         )
 
-    upsert_speakers(session, episode_id=episode.id,
-                    clusters={int(u.get("speaker", -1)) for u in utterances})
+    # A speakers-pending preview only has cluster -1; registering it would leave a
+    # stale "unknown speaker" row behind once the final clusters arrive.
+    if not speakers_pending:
+        upsert_speakers(session, episode_id=episode.id,
+                        clusters={int(u.get("speaker", -1)) for u in utterances})
 
     log.info("loaded transcript %s: %d words, %d utterances",
              transcript.id, len(words), len(utterances))

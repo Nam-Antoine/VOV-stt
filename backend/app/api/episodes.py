@@ -23,13 +23,13 @@ from ..schemas import (
     SpeakerOut,
     TranscribeRequest,
 )
-from .deps import require_editor
+from .deps import require_admin, require_editor
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
 
 
 def _counts(session: Session, episode_ids: list[uuid.UUID]) -> dict:
-    """``{episode_id: (transcript_id, n_utterances, n_verified)}`` in one query.
+    """``{episode_id: (transcript_id, n_utterances, n_verified, speakers_pending)}``.
 
     Done as a single grouped query rather than per row: the Episodes page lists the
     whole backlog and N+1 counting over 129 episodes is a visible stall.
@@ -40,15 +40,16 @@ def _counts(session: Session, episode_ids: list[uuid.UUID]) -> dict:
         select(
             Transcript.episode_id,
             Transcript.id,
+            Transcript.speakers_pending,
             func.count(Utterance.id),
             func.count(Utterance.text_verified),
         )
         .select_from(Transcript)
         .outerjoin(Utterance, Utterance.transcript_id == Transcript.id)
         .where(Transcript.episode_id.in_(episode_ids), Transcript.is_current.is_(True))
-        .group_by(Transcript.episode_id, Transcript.id)
+        .group_by(Transcript.episode_id, Transcript.id, Transcript.speakers_pending)
     ).all()
-    return {r[0]: (r[1], int(r[2]), int(r[3])) for r in rows}
+    return {r[0]: (r[1], int(r[3]), int(r[4]), bool(r[2])) for r in rows}
 
 
 @router.get("", response_model=list[EpisodeListItem])
@@ -68,11 +69,12 @@ def list_episodes(
     counts = _counts(session, [e.id for e in episodes])
     out = []
     for e in episodes:
-        tid, total, verified = counts.get(e.id, (None, 0, 0))
+        tid, total, verified, pending = counts.get(e.id, (None, 0, 0, False))
         out.append(
             EpisodeListItem.model_validate(e).model_copy(
                 update={"current_transcript_id": tid,
-                        "n_utterances": total, "n_verified": verified}
+                        "n_utterances": total, "n_verified": verified,
+                        "speakers_pending": pending}
             )
         )
     return out
@@ -133,7 +135,7 @@ def episode_from_url(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:  # noqa: BLE001 — network/URL problems are the user's to see
-        raise HTTPException(status_code=400, detail=f"could not fetch: {exc}") from None
+        raise HTTPException(status_code=400, detail=f"không tải được từ URL: {exc}") from None
     session.commit()
     return EpisodeOut.model_validate(episode)
 
@@ -146,7 +148,7 @@ def get_episode(
 ) -> EpisodeDetail:
     episode = session.get(Episode, episode_id)
     if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
 
     transcript = loader.current_transcript(session, episode.id)
     total = verified = n_words = 0
@@ -172,6 +174,7 @@ def get_episode(
             "n_verified": verified,
             "n_words": n_words,
             "speakers": speakers,
+            "speakers_pending": bool(transcript and transcript.speakers_pending),
         }
     )
 
@@ -186,7 +189,7 @@ def enqueue_transcribe(
     """Queue a transcribe job. One worker drains the queue sequentially (rule 6)."""
     episode = session.get(Episode, episode_id)
     if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
 
     params = (body.model_dump(exclude_none=True) if body else {})
     job = Job(episode_id=episode.id, kind="transcribe", status="queued",
@@ -206,7 +209,7 @@ def enqueue_export(
     """Queue a regeneration of every export format for this episode."""
     episode = session.get(Episode, episode_id)
     if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
     job = Job(episode_id=episode.id, kind="export", status="queued", params={},
               max_attempts=settings.worker_max_attempts)
     session.add(job)
@@ -218,7 +221,7 @@ def enqueue_export(
 def delete_episode(
     episode_id: uuid.UUID,
     session: Session = Depends(get_session),
-    editor: str = Depends(require_editor),
+    editor: str = Depends(require_admin),
 ) -> dict:
     """Delete an episode — only if it has no verified utterances.
 
@@ -227,7 +230,7 @@ def delete_episode(
     """
     episode = session.get(Episode, episode_id)
     if episode is None:
-        raise HTTPException(status_code=404, detail="episode not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
 
     verified = session.scalar(
         select(func.count()).select_from(Utterance)
@@ -238,7 +241,8 @@ def delete_episode(
     if verified:
         raise HTTPException(
             status_code=409,
-            detail=f"{verified} verified utterances — refusing to delete human work",
+            detail=(f"tập có {verified} lượt lời đã duyệt — "
+                    "không xóa để tránh mất công sức của người duyệt"),
         )
 
     session.delete(episode)

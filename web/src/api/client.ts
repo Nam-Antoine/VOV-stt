@@ -8,8 +8,11 @@ import type {
   Health,
   Hotword,
   Job,
+  Me,
+  Role,
   Stats,
   Transcript,
+  User,
   Utterance,
 } from './types'
 
@@ -60,13 +63,24 @@ export const api = {
   stats: () => request<Stats>('/stats'),
 
   // --- auth --------------------------------------------------------------
-  login: (password: string, editor?: string) =>
-    request<{ ok: boolean }>('/auth/login', {
-      method: 'POST',
-      body: body({ password, editor }),
-    }),
+  login: (username: string, password: string) =>
+    request<Me>('/auth/login', { method: 'POST', body: body({ username, password }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
-  me: () => request<{ ok: boolean }>('/auth/me'),
+  me: () => request<Me>('/auth/me'),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean }>('/auth/password', {
+      method: 'POST',
+      body: body({ current_password, new_password }),
+    }),
+
+  // --- users (admin) -----------------------------------------------------
+  listUsers: () => request<User[]>('/users'),
+  createUser: (payload: { username: string; display_name?: string; role: Role; password: string }) =>
+    request<User>('/users', { method: 'POST', body: body(payload) }),
+  updateUser: (
+    id: string,
+    patch: Partial<{ display_name: string | null; role: Role; is_active: boolean; password: string }>,
+  ) => request<User>(`/users/${id}`, { method: 'PATCH', body: body(patch) }),
 
   // --- episodes ----------------------------------------------------------
   listEpisodes: (params: { status?: string; q?: string } = {}) => {
@@ -102,8 +116,14 @@ export const api = {
 
   // --- transcripts -------------------------------------------------------
   getTranscript: (id: string) => request<Transcript>(`/transcripts/${id}`),
+  /** Bring the punctuated reading layer up to date (only changed turns are redone). */
+  refreshReadable: (id: string) =>
+    request<{ written: number }>(`/transcripts/${id}/readable`, { method: 'POST' }),
   rawJsonUrl: (id: string) => `${BASE}/transcripts/${id}/raw`,
   audioUrl: (id: string) => `${BASE}/transcripts/${id}/audio`,
+  /** Precomputed waveform; 404 when the server has no 16 kHz WAV to take it from. */
+  getPeaks: (id: string) =>
+    request<{ duration: number; peaks: number[] }>(`/transcripts/${id}/peaks`),
 
   // --- utterances --------------------------------------------------------
   // The payload is sent exactly as typed. No trim(), no normalisation — CLAUDE.md
@@ -137,6 +157,7 @@ export const api = {
   // --- exports -----------------------------------------------------------
   exportUrl: (episodeId: string, fmt: string) =>
     `${BASE}/episodes/${episodeId}/export.${fmt}`,
+  allZipUrl: (fmt: string) => `${BASE}/exports/all.zip?fmt=${encodeURIComponent(fmt)}`,
   corpusZipUrl: (tier: 'verified' | 'all' = 'verified') =>
     `${BASE}/exports/corpus.zip?tier=${tier}`,
 }

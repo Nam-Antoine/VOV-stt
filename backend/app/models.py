@@ -136,6 +136,12 @@ class Transcript(Base):
     hotwords_sha256: Mapped[str | None] = mapped_column(Text)
     raw_json_path: Mapped[str] = mapped_column(Text, nullable=False)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: ASR text published before diarization finished: every speaker is -1 and the
+    #: utterance boundaries will change, so the rows are read-only until the final
+    #: transcript (a new row, a new raw JSON) replaces this one.
+    speakers_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     #: Filled by the pilot only (PLAN §8).
     wer_vs_reference: Mapped[float | None] = mapped_column(Numeric)
     created_at: Mapped[datetime] = mapped_column(
@@ -204,6 +210,11 @@ class Utterance(Base):
     text_verified: Mapped[str | None] = mapped_column(Text)
     verified_by: Mapped[str | None] = mapped_column(String(128))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Derived readable layer (punctuation + case, app/readable.py). Never exported as
+    #: corpus text. ``readable_from`` is the exact text it was computed from; when it
+    #: differs from the current text (an edit, a split) the readable text is stale.
+    text_readable: Mapped[str | None] = mapped_column(Text)
+    readable_from: Mapped[str | None] = mapped_column(Text)
     #: e.g. {'overlap','unclear','music'} (PLAN §8, §10).
     flags: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'")
@@ -276,3 +287,35 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+USER_ROLES = ("admin", "editor")
+
+
+class User(Base):
+    """A login account. Admins create them; there is no public sign-up.
+
+    ``username`` is what lands in ``utterance_edits.editor`` / ``verified_by``, so it is
+    stable: renaming someone changes ``display_name`` only. ``session_version`` is bumped
+    on a password reset, role change or disable, which invalidates every cookie issued
+    before it.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(f"role in {USER_ROLES!r}", name="users_role_check"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="editor")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

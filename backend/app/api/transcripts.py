@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import mimetypes
 import re
 import uuid
 from pathlib import Path
@@ -11,6 +13,9 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import player
+from .. import readable as readable_mod
+from ..config import settings
 from ..db import get_session
 from ..models import Episode, Speaker, Transcript, Utterance, Word
 from ..schemas import SpeakerOut, TranscriptOut, UtteranceOut, WordOut
@@ -28,7 +33,7 @@ RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 def _transcript_or_404(session: Session, transcript_id: uuid.UUID) -> Transcript:
     transcript = session.get(Transcript, transcript_id)
     if transcript is None:
-        raise HTTPException(status_code=404, detail="transcript not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy bản chép lời")
     return transcript
 
 
@@ -54,7 +59,9 @@ def get_transcript(
         )
     ]
     utterances = [
-        UtteranceOut.model_validate(u)
+        UtteranceOut.model_validate(u).model_copy(
+            update={"text_readable": None if readable_mod.is_stale(u) else u.text_readable}
+        )
         for u in session.scalars(
             select(Utterance)
             .where(Utterance.transcript_id == transcript.id)
@@ -77,10 +84,41 @@ def get_transcript(
         params=transcript.params,
         hotwords_sha256=transcript.hotwords_sha256,
         created_at=transcript.created_at,
+        speakers_pending=transcript.speakers_pending,
+        readable_available=settings.punct_available(),
         words=words,
         utterances=utterances,
         speakers=speakers,
     )
+
+
+@router.post("/{transcript_id}/readable")
+def refresh_readable(
+    transcript_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> dict:
+    """Bring the punctuated reading layer up to date with the current text.
+
+    Only turns that changed since the last run are recomputed, so after one edit this
+    takes well under a second; a transcript that never had the layer takes ~20 s.
+    The corpus text is not touched (CLAUDE.md rule 1).
+    """
+    from ..pipeline import punctuate
+
+    transcript = _transcript_or_404(session, transcript_id)
+    if transcript.speakers_pending:
+        raise HTTPException(
+            status_code=409,
+            detail="đang xác định người nói — vui lòng chờ xử lý xong",
+        )
+    if not settings.punct_available():
+        raise HTTPException(status_code=503, detail="chưa cài mô hình thêm dấu câu")
+    written = readable_mod.refresh(
+        session, transcript.id, punctuate.get(settings.punct_params())
+    )
+    session.commit()
+    return {"written": written}
 
 
 @router.get("/{transcript_id}/raw")
@@ -93,7 +131,7 @@ def get_raw_json(
     transcript = _transcript_or_404(session, transcript_id)
     path = Path(transcript.raw_json_path)
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"raw JSON missing: {path}")
+        raise HTTPException(status_code=404, detail=f"thiếu file JSON gốc: {path}")
     return FileResponse(
         path,
         media_type="application/json; charset=utf-8",
@@ -109,14 +147,14 @@ def _audio_path(session: Session, transcript: Transcript) -> Path:
     """
     episode = session.get(Episode, transcript.episode_id)
     if episode is None or not episode.audio_path:
-        raise HTTPException(status_code=404, detail="episode audio missing")
+        raise HTTPException(status_code=404, detail="thiếu file âm thanh của tập")
     original = Path(episode.audio_path)
     wav = original.with_suffix("").with_suffix(".16k.wav")
     candidate = original.parent / f"{original.stem}.16k.wav"
     for path in (candidate, wav, original):
         if path.exists():
             return path
-    raise HTTPException(status_code=404, detail=f"audio file missing: {original}")
+    raise HTTPException(status_code=404, detail=f"thiếu file âm thanh: {original}")
 
 
 @router.get("/{transcript_id}/audio")
@@ -129,17 +167,22 @@ def stream_audio(
     """Range-request streaming. wavesurfer and click-to-play both need seeking."""
     transcript = _transcript_or_404(session, transcript_id)
     path = _audio_path(session, transcript)
+    # The compressed listening copy once it exists (~5 MB vs ~27 MB); the WAV until then.
+    if path.suffix == ".wav":
+        path = player.proxy_or_schedule(path) or path
     size = path.stat().st_size
-    media_type = "audio/wav" if path.suffix == ".wav" else "audio/mpeg"
+    media_type = {".wav": "audio/wav", ".m4a": "audio/mp4"}.get(path.suffix) or (
+        mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    )
+    headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
 
     range_header = request.headers.get("range")
     if not range_header:
-        return FileResponse(path, media_type=media_type,
-                            headers={"Accept-Ranges": "bytes"})
+        return FileResponse(path, media_type=media_type, headers=headers)
 
     match = RANGE_RE.fullmatch(range_header.strip())
     if not match:
-        raise HTTPException(status_code=416, detail="malformed Range header")
+        raise HTTPException(status_code=416, detail="header Range không hợp lệ")
     raw_start, raw_end = match.groups()
     if raw_start:
         start = int(raw_start)
@@ -150,7 +193,7 @@ def stream_audio(
         start = max(0, size - length)
         end = size - 1
     if start >= size:
-        raise HTTPException(status_code=416, detail="range beyond end of file")
+        raise HTTPException(status_code=416, detail="vùng yêu cầu vượt quá cuối file")
     end = min(end, size - 1)
 
     def body():
@@ -169,8 +212,31 @@ def stream_audio(
         status_code=206,
         media_type=media_type,
         headers={
+            **headers,
             "Content-Range": f"bytes {start}-{end}/{size}",
-            "Accept-Ranges": "bytes",
             "Content-Length": str(end - start + 1),
         },
+    )
+
+
+@router.get("/{transcript_id}/peaks")
+def get_peaks(
+    transcript_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> Response:
+    """Waveform peaks + exact duration, so the player never decodes the audio itself.
+
+    404 when only the original upload exists (no 16 kHz WAV): the player then falls
+    back to decoding in the browser, as before.
+    """
+    transcript = _transcript_or_404(session, transcript_id)
+    path = _audio_path(session, transcript)
+    if path.suffix != ".wav":
+        raise HTTPException(status_code=404, detail="chưa có file WAV 16 kHz để vẽ dạng sóng")
+    player.proxy_or_schedule(path)  # warm the listening copy while we are here
+    return Response(
+        content=json.dumps(player.peaks_for(path)),
+        media_type="application/json",
+        headers={"Cache-Control": "private, max-age=86400"},
     )

@@ -39,9 +39,9 @@ def retry_job(
     """Reset a failed job to ``queued`` and clear ``locked_at``."""
     job = session.get(Job, job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tác vụ")
     if job.status == "running":
-        raise HTTPException(status_code=409, detail="job is running")
+        raise HTTPException(status_code=409, detail="tác vụ đang chạy")
     job.status = "queued"
     job.locked_at = None
     job.finished_at = None
@@ -62,5 +62,5 @@ def job_log(
     """``jobs.log``; the UI polls this every 2 s while a job is running."""
     job = session.get(Job, job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy tác vụ")
     return JobLog(id=job.id, log=job.log or job.error or "")

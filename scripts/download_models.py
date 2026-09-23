@@ -46,6 +46,7 @@ ASR_DIR = "zipformer-30m-rnnt-6000h"
 VAD_REPO = "csukuangfj/vad"
 SEG_REPO = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0"
 EMB_REPO = "csukuangfj/speaker-embedding-models"
+PUNCT_REPO = "welcomyou/vibert-capu-onnx"
 
 #: PLAN §3 recommends 3D-Speaker or WeSpeaker. The zh_en advanced CAM++ is the
 #: general-purpose default; override with --embedding.
@@ -110,6 +111,14 @@ def plan_items(*, int8: bool, fp32: bool, embedding: str) -> list[Item]:
         Item(EMB_REPO, embedding, f"diarization/speaker-embedding/{embedding}",
              role="diarization-embedding", note="speaker embedding extractor")
     )
+    # Readable layer (app/readable.py): punctuation + capitals, CC BY-SA 4.0.
+    for remote, role in (("vibert-capu.onnx", "punctuation-model"),
+                         ("vocab.txt", "punctuation-vocab"),
+                         ("vocabulary/labels.txt", "punctuation-labels")):
+        items.append(
+            Item(PUNCT_REPO, remote, f"punctuation/vibert-capu/{remote}", role=role,
+                 note="ViBERT-capu ONNX; readable layer only, never corpus text")
+        )
     return items
 
 

@@ -1,4 +1,4 @@
-// Single shared password (PLAN §6 auth v1). One team, one password, one cookie.
+// Per-user login. Accounts are created by an admin; there is no sign-up.
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -7,13 +7,17 @@ import { Spinner } from '../components/Icons'
 import ThemeToggle from '../components/ThemeToggle'
 
 export default function Login() {
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [editor, setEditor] = useState('')
   const queryClient = useQueryClient()
 
   const login = useMutation({
-    mutationFn: () => api.login(password, editor || undefined),
-    onSuccess: () => queryClient.invalidateQueries(),
+    mutationFn: () => api.login(username, password),
+    onSuccess: (me) => {
+      queryClient.setQueryData(['session'], me)
+      queryClient.invalidateQueries()
+    },
+    onError: () => setPassword(''),
   })
 
   return (
@@ -24,8 +28,8 @@ export default function Login() {
 
       <div className="w-full max-w-sm animate-slide-up">
         <div className="mb-6 text-center">
-          <h1 className="text-lg font-semibold">VN-STT Corpus</h1>
-          <p className="mt-0.5 text-sm text-muted">VOV2 · Đàn bà 30+</p>
+          <p className="eyebrow">VOV2 · Đàn bà 30+</p>
+          <h1 className="title mt-2">VN-STT Corpus</h1>
         </div>
 
         <form
@@ -36,10 +40,25 @@ export default function Login() {
           }}
         >
           <label className="block text-sm">
-            <span className="text-muted">Password</span>
+            <span className="text-muted">Tên đăng nhập</span>
             <input
-              type="password"
+              name="username"
               autoFocus
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="field mt-1"
+            />
+          </label>
+
+          <label className="block text-sm">
+            <span className="text-muted">Mật khẩu</span>
+            <input
+              name="password"
+              type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -47,35 +66,24 @@ export default function Login() {
             />
           </label>
 
-          <label className="block text-sm">
-            <span className="text-muted">Your name</span>
-            <input
-              value={editor}
-              onChange={(e) => setEditor(e.target.value)}
-              placeholder="optional — recorded against your edits"
-              className="field mt-1"
-            />
-          </label>
-
           <button
             type="submit"
-            disabled={login.isPending || !password}
+            disabled={login.isPending || !username.trim() || !password}
             className="btn-primary w-full"
           >
             {login.isPending ? <Spinner className="h-4 w-4" /> : null}
-            {login.isPending ? 'Signing in…' : 'Sign in'}
+            {login.isPending ? 'Đang đăng nhập…' : 'Đăng nhập'}
           </button>
 
           {login.isError && (
             <p className="text-sm text-rose-600 dark:text-rose-400" role="alert">
-              {login.error instanceof ApiError ? login.error.detail : 'Sign-in failed'}
+              {login.error instanceof ApiError ? login.error.detail : 'Đăng nhập thất bại'}
             </p>
           )}
         </form>
 
         <p className="mt-4 text-center text-xs leading-relaxed text-faint">
-          A verbatim linguistic corpus. Fillers, repetitions and false starts are the
-          data, not mistakes.
+          Chưa có tài khoản hoặc quên mật khẩu? Liên hệ quản trị viên.
         </p>
       </div>
     </div>

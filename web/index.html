@@ -3,22 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
-    <title>VN-STT Corpus — Đàn bà 30+</title>
-    <!-- Noto Sans carries the Vietnamese combining marks; the stack in
-         tailwind.config.js falls back to system UI if this never loads. -->
+    <meta name="color-scheme" content="light" />
+    <title>Kho ngữ liệu VN-STT — Đàn bà 30+</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#ffffff" />
+    <!-- Be Vietnam Pro carries the Vietnamese combining marks; tailwind.config.js falls
+         back to system faces if it never loads. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script>
       // Applied before first paint: without this the app flashes light, then swaps
       // to dark once React mounts.
       try {
-        var t = localStorage.getItem('vnstt.theme')
-        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        var t = localStorage.getItem('vnstt.theme.choice')
+        if (t === 'dark') {
           document.documentElement.classList.add('dark')
         }
       } catch (e) { /* private mode: light is a fine default */ }

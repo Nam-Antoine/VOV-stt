@@ -1,33 +1,39 @@
-"""Single shared password → signed session cookie (PLAN §6 auth v1).
+"""Per-user login → signed session cookie.
 
-Not a user system. One team, one password, one cookie. Anything more (roles, SSO,
-per-user audit) is out of scope for v1 — but ``utterance_edits.editor`` already has a
-column for it, so the audit trail is not blocked by this choice.
+Accounts are created by an admin (``/api/users``) or, for the first admin, by
+``python -m app.users``. There is no public sign-up. Failed logins are throttled per
+client IP and per username (``app.security.LoginThrottle``).
 """
 
 from __future__ import annotations
 
-import secrets
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..schemas import LoginRequest, LoginResponse
-from .deps import issue_session
+from ..db import get_session
+from ..models import User
+from ..schemas import LoginRequest, LoginResponse, Me, PasswordChange
+from ..security import (
+    DUMMY_HASH,
+    hash_password,
+    login_throttle,
+    needs_rehash,
+    password_problem,
+    verify_password,
+)
+from .deps import current_user, issue_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, request: Request, response: Response) -> LoginResponse:
-    """Compare against ``APP_PASSWORD`` and set the signed session cookie."""
-    # Constant-time: a timing side channel on a shared password is cheap to avoid.
-    if not secrets.compare_digest(body.password, settings.app_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="wrong password")
+def set_session_cookie(request: Request, response: Response, user: User) -> None:
     response.set_cookie(
         key=settings.session_cookie_name,
-        value=issue_session(body.editor or "verifier"),
+        value=issue_session(user),
         max_age=settings.session_max_age_s,
         httponly=True,
         samesite="lax",
@@ -37,7 +43,38 @@ def login(body: LoginRequest, request: Request, response: Response) -> LoginResp
         secure=request.url.scheme == "https",
         path="/",
     )
-    return LoginResponse(ok=True)
+
+
+@router.post("/login", response_model=Me)
+def login(body: LoginRequest, request: Request, response: Response,
+          session: Session = Depends(get_session)) -> Me:
+    if not settings.auth_enabled:
+        raise HTTPException(status_code=404, detail="đăng nhập đang tắt")
+    username = body.username.strip().lower()
+    keys = (f"ip:{request.client.host if request.client else '?'}", f"user:{username}")
+    wait = login_throttle.retry_after(*keys)
+    if wait:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"sai quá nhiều lần — thử lại sau {max(1, round(wait / 60))} phút",
+            headers={"Retry-After": str(wait)},
+        )
+
+    user = session.scalar(select(User).where(func.lower(User.username) == username))
+    # Hash even for unknown users so timing doesn't reveal which usernames exist.
+    ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)
+    if not (user and ok and user.is_active):
+        login_throttle.fail(*keys)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="sai tên đăng nhập hoặc mật khẩu")
+
+    login_throttle.succeed(*keys)
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
+    user.last_login_at = datetime.now(UTC)
+    session.commit()
+    set_session_cookie(request, response, user)
+    return Me(username=user.username, display_name=user.display_name, role=user.role)
 
 
 @router.post("/logout", response_model=LoginResponse)
@@ -47,18 +84,27 @@ def logout(response: Response) -> LoginResponse:
     return LoginResponse(ok=True)
 
 
-@router.get("/me", response_model=LoginResponse)
-def me(request: Request) -> LoginResponse:
-    """Cheap 'am I signed in?' probe for the SPA's route guard."""
-    from itsdangerous import BadSignature, SignatureExpired
+@router.get("/me", response_model=Me)
+def me(user: User = Depends(current_user)) -> Me:
+    """Who is signed in — the SPA's route guard and role check."""
+    return Me(username=user.username, display_name=user.display_name, role=user.role,
+              auth_enabled=settings.auth_enabled)
 
-    from .deps import read_session
 
-    token = request.cookies.get(settings.session_cookie_name)
-    if not token:
-        raise HTTPException(status_code=401, detail="not signed in")
-    try:
-        read_session(token)
-    except (BadSignature, SignatureExpired):
-        raise HTTPException(status_code=401, detail="invalid session") from None
+@router.post("/password", response_model=LoginResponse)
+def change_password(body: PasswordChange, request: Request, response: Response,
+                    user: User = Depends(current_user),
+                    session: Session = Depends(get_session)) -> LoginResponse:
+    """Change your own password. Other sessions are signed out; this one is kept."""
+    if not settings.auth_enabled:
+        raise HTTPException(status_code=404, detail="đăng nhập đang tắt")
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="mật khẩu hiện tại không đúng")
+    problem = password_problem(body.new_password)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    user.password_hash = hash_password(body.new_password)
+    user.session_version += 1
+    session.commit()
+    set_session_cookie(request, response, user)
     return LoginResponse(ok=True)

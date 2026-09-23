@@ -76,6 +76,7 @@ export function utterancesFromRaw(doc: RawDoc): Utterance[] {
     text_verified: null,
     verified_by: null,
     verified_at: null,
+    text_readable: null,
     flags: [],
   }))
 }
@@ -98,6 +99,8 @@ export function transcriptFromRaw(doc: RawDoc): Transcript {
     hotwords_sha256:
       (doc.engine.params?.hotwords_sha256 as string | undefined) ?? null,
     created_at: doc.created_at,
+    speakers_pending: false,
+    readable_available: false,
     words: wordsFromRaw(doc),
     utterances: utterancesFromRaw(doc),
     speakers: speakersFromRaw(doc),

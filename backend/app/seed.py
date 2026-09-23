@@ -20,23 +20,25 @@ from .models import Hotword, Setting
 
 log = logging.getLogger("seed")
 
-# Kept in step with alembic/versions/0001_initial.py:HOTWORD_SEED (PLAN §8).
+# The model's vocabulary is UPPERCASE spoken form, so terms are written that way — a
+# mixed-case term encodes to <unk> and biases nothing. Kept in step with
+# alembic/versions/0001_initial.py + 0002_hotwords_model_form.py (PLAN §8).
 HOTWORD_SEED: list[tuple[str, float, str]] = [
-    ("Đàn bà 30+", 1.5, "programme name"),
+    ("ĐÀN BÀ BA MƯƠI CỘNG", 1.5, "programme name (Đàn bà 30+), as spoken"),
     ("VOV2", 1.5, "station"),
-    ("Thanh Huyền", 1.5, "MC"),
-    ("Di Li", 1.5, "guest — nhà văn"),
-    ("Hoàng Anh Tú", 1.5, "recurring guest"),
-    ("Đỗ Anh Vũ", 1.5, "recurring guest"),
-    ("quản chồng", 1.0, "recurring topic"),
-    ("giữ chồng", 1.0, "recurring topic"),
-    ("giữ lửa", 1.0, "recurring topic"),
-    ("ngoại tình", 1.0, "recurring topic"),
-    ("tâm sự", 1.0, "recurring topic"),
-    ("hôn nhân", 1.0, "recurring topic"),
-    ("chung thủy", 1.0, "recurring topic"),
-    ("ly hôn", 1.0, "recurring topic"),
-    ("gia đình", 1.0, "recurring topic"),
+    ("THANH HUYỀN", 1.5, "MC"),
+    ("DI LI", 1.5, "guest — nhà văn"),
+    ("HOÀNG ANH TÚ", 1.5, "recurring guest"),
+    ("ĐỖ ANH VŨ", 1.5, "recurring guest"),
+    ("QUẢN CHỒNG", 1.0, "recurring topic"),
+    ("GIỮ CHỒNG", 1.0, "recurring topic"),
+    ("GIỮ LỬA", 1.0, "recurring topic"),
+    ("NGOẠI TÌNH", 1.0, "recurring topic"),
+    ("TÂM SỰ", 1.0, "recurring topic"),
+    ("HÔN NHÂN", 1.0, "recurring topic"),
+    ("CHUNG THỦY", 1.0, "recurring topic"),
+    ("LY HÔN", 1.0, "recurring topic"),
+    ("GIA ĐÌNH", 1.0, "recurring topic"),
 ]
 
 #: Pipeline defaults. The pilot (PLAN §4.3) replaces these with measured choices; until
@@ -58,7 +60,8 @@ SETTINGS_SEED: dict[str, dict] = {
     "diarization": {
         "threshold": 0.7, "num_clusters": 0,
         "min_duration_on": 0.3, "min_duration_off": 0.5,
-        "_source": "PLAN §3 defaults",
+        "window_shift_ratio": 0.2,
+        "_source": "PLAN §3 defaults; window_shift_ratio benchmarked 2026-09-23",
     },
 }
 

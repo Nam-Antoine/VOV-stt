@@ -5,6 +5,11 @@
 	# Uncomment and set for Let's Encrypt on the VPS.
 	# email admin@example.com
 	admin off
+	# Host nginx terminates TLS for vovstt.io.vn and forwards here over the docker
+	# bridge; keep its X-Forwarded-Proto instead of overwriting it with "http".
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 {$SITE_ADDRESS} {

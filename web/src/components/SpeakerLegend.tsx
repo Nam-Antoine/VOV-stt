@@ -15,19 +15,21 @@ import { Chevron } from './Icons'
 
 /** Stable colour per cluster so the same speaker keeps its colour down the page. */
 export const SPEAKER_COLOURS = [
-  '#2563eb', '#db2777', '#16a34a', '#d97706', '#7c3aed',
-  '#0891b2', '#dc2626', '#4d7c0f', '#9333ea', '#0f766e',
+  // Earthy mid-tones: ~4:1 against both the paper and the charcoal ground, so the
+  // same hue works as a label in light and dark mode.
+  '#3a7ca5', '#b5533c', '#5b8c3e', '#b8860b', '#8360a8',
+  '#2f8c80', '#b04a76', '#7c7c32', '#5271c4', '#9a6a45',
 ] as const
 
 export function speakerColour(cluster: number): string {
-  if (cluster < 0) return '#94a3b8'
+  if (cluster < 0) return '#8f8577'
   return SPEAKER_COLOURS[cluster % SPEAKER_COLOURS.length]
 }
 
 export function speakerName(labels: Record<number, string>, cluster: number): string {
   if (labels[cluster]) return labels[cluster]
-  if (cluster < 0) return 'SPEAKER_UNKNOWN'
-  return `SPEAKER_${String(cluster).padStart(2, '0')}`
+  if (cluster < 0) return 'Người nói không rõ'
+  return `Người nói ${String(cluster).padStart(2, '0')}`
 }
 
 /** Seconds of speech per cluster, for ordering and for the share percentages. */
@@ -93,8 +95,8 @@ export default function SpeakerLegend({
               if (e.key === 'Enter') e.currentTarget.blur()
               if (e.key === 'Escape') setEditing(null)
             }}
-            className="w-44 rounded-full border border-line bg-surface px-3 py-1 text-xs focus:border-accent focus:outline-none"
-            placeholder="e.g. MC Thanh Huyền"
+            className="w-44 rounded-full border border-line bg-surface px-3 py-1 text-xs focus:border-accent-strong focus:outline-none"
+            placeholder="vd. MC Thanh Huyền"
           />
         ) : (
           <button
@@ -103,17 +105,17 @@ export default function SpeakerLegend({
               setDraft(s.label ?? '')
               setEditing(s.cluster)
             }}
-            title={`${Math.round(s.seconds)}s of speech — click to rename for this episode`}
-            className="group inline-flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-xs font-medium text-white transition-opacity hover:opacity-85"
-            style={{ backgroundColor: speakerColour(s.cluster) }}
+            title={`${Math.round(s.seconds)} giây nói — nhấp để đặt tên cho tập này`}
+            className="group inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas py-1 pl-2 pr-2.5 text-xs font-medium text-ink transition-colors hover:border-faint"
           >
             <span
-              className="h-2 w-2 rounded-full bg-white/70"
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: speakerColour(s.cluster) }}
               aria-hidden="true"
             />
-            {s.label ?? `SPEAKER_${String(s.cluster).padStart(2, '0')}`}
+            {s.label ?? `Người nói ${String(s.cluster).padStart(2, '0')}`}
             {total > 0 && (
-              <span className="tabular-nums opacity-70">
+              <span className="tabular-nums text-faint">
                 {Math.round((s.seconds / total) * 100)}%
               </span>
             )}
@@ -126,13 +128,13 @@ export default function SpeakerLegend({
           onClick={() => setExpanded((v) => !v)}
           className="btn-ghost btn-sm rounded-full"
         >
-          {expanded ? 'Show fewer' : `${hidden} more`}
+          {expanded ? 'Thu gọn' : `thêm ${hidden}`}
           <Chevron className={`h-3 w-3 ${expanded ? 'rotate-180' : ''}`} />
         </button>
       )}
 
       {speakers.length === 0 && (
-        <span className="text-xs text-faint">No speaker clusters yet.</span>
+        <span className="text-xs text-faint">Chưa có nhóm người nói nào.</span>
       )}
     </div>
   )

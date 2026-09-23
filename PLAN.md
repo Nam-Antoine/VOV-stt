@@ -265,7 +265,7 @@ Diacritics turning into `\u1ea1` means someone forgot — treat as a test failur
 | Frontend | **React 18 + TypeScript + Vite**, TanStack Query, Tailwind, `wavesurfer.js` for the player | Static build; no SSR needed |
 | Reverse proxy | **Caddy** (auto-TLS) → `/api/*` → api:8000, everything else → static `web/dist` | One config file |
 | Storage | Local volume `/data`: `audio/`, `raw/`, `exports/`, `models/` | Back up `/data/raw` — it's the master record |
-| Auth (v1) | Single shared `APP_PASSWORD` → signed session cookie | Client is one team |
+| Auth | Per-user accounts (admin/editor), scrypt hashes, signed session cookie; admins create accounts, no sign-up | Public on vovstt.io.vn |
 
 No LLM API calls anywhere in the pipeline. `anthropic`/`openai` packages are not dependencies.
 

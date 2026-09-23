@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,13 +20,55 @@ class ORMModel(BaseModel):
 # --- auth -------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
-    password: str
-    #: Free-text name recorded against this session's edits (utterance_edits.editor).
-    editor: str | None = None
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class LoginResponse(BaseModel):
     ok: bool = True
+
+
+class Me(BaseModel):
+    username: str
+    display_name: str | None = None
+    role: str
+    #: False: the site has no login; the SPA hides sign-out and account pages.
+    auth_enabled: bool = True
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(max_length=256)
+
+
+# Usernames are login handles, not names: lower-case ASCII so "Nam" and "nam" can't be
+# two accounts. The person's real name goes in display_name.
+USERNAME_PATTERN = r"^[a-z0-9][a-z0-9._-]{1,31}$"
+
+
+class UserOut(ORMModel):
+    id: uuid.UUID
+    username: str
+    display_name: str | None = None
+    role: str
+    is_active: bool
+    created_at: datetime | None = None
+    last_login_at: datetime | None = None
+
+
+class UserCreate(BaseModel):
+    username: str = Field(pattern=USERNAME_PATTERN)
+    display_name: str | None = Field(default=None, max_length=128)
+    role: Literal["admin", "editor"] = "editor"
+    password: str = Field(max_length=256)
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=128)
+    role: Literal["admin", "editor"] | None = None
+    is_active: bool | None = None
+    #: Set by an admin to reset a forgotten password; signs the user out everywhere.
+    password: str | None = Field(default=None, max_length=256)
 
 
 # --- episodes ---------------------------------------------------------------
@@ -69,6 +112,9 @@ class EpisodeDetail(EpisodeOut):
     n_utterances: int = 0
     n_verified: int = 0
     n_words: int = 0
+    #: True while the current transcript is the ASR-only preview: text is final,
+    #: speakers are still being worked out and the utterances are read-only.
+    speakers_pending: bool = False
     speakers: list[SpeakerOut] = Field(default_factory=list)
 
 
@@ -78,6 +124,9 @@ class EpisodeListItem(EpisodeOut):
     current_transcript_id: uuid.UUID | None = None
     n_utterances: int = 0
     n_verified: int = 0
+    #: True while the current transcript is the ASR-only preview: text is final,
+    #: speakers are still being worked out and the utterances are read-only.
+    speakers_pending: bool = False
 
 
 # --- jobs -------------------------------------------------------------------
@@ -134,6 +183,9 @@ class UtteranceOut(ORMModel):
     verified_by: str | None = None
     verified_at: datetime | None = None
     flags: list[str] = Field(default_factory=list)
+    #: Punctuated, cased reading of the current text (derived; never corpus text).
+    #: None when not computed yet or stale after an edit.
+    text_readable: str | None = None
 
 
 class TranscriptOut(ORMModel):
@@ -144,6 +196,9 @@ class TranscriptOut(ORMModel):
     params: dict | None = None
     hotwords_sha256: str | None = None
     created_at: datetime
+    speakers_pending: bool = False
+    #: Whether the readable layer can be computed on this host (model present).
+    readable_available: bool = False
     words: list[WordOut] = Field(default_factory=list)
     utterances: list[UtteranceOut] = Field(default_factory=list)
     speakers: list[SpeakerOut] = Field(default_factory=list)

@@ -5,15 +5,15 @@ import { useEffect } from 'react'
 import { Keyboard } from './Icons'
 
 const KEYS: [string, string][] = [
-  ['Space', 'Play / pause'],
-  ['[  ]', 'Previous / next utterance'],
-  ['L', 'Loop the current utterance'],
-  ['F', 'Follow the playhead down the page'],
-  ['Double-click', 'Edit an utterance'],
-  ['Click a word', 'Play from that word'],
-  ['Esc', 'Discard an edit in progress'],
-  ['⌘/Ctrl + Enter', 'Save an edit'],
-  ['?', 'This list'],
+  ['Space', 'Phát / tạm dừng'],
+  ['[  ]', 'Lượt lời trước / sau'],
+  ['L', 'Lặp lại lượt lời hiện tại'],
+  ['F', 'Tự cuộn theo vị trí đang phát'],
+  ['Nhấp đúp', 'Sửa một lượt lời'],
+  ['Nhấp vào một từ', 'Phát từ từ đó'],
+  ['Esc', 'Hủy chỉnh sửa đang làm'],
+  ['⌘/Ctrl + Enter', 'Lưu chỉnh sửa'],
+  ['?', 'Danh sách này'],
 ]
 
 export default function Shortcuts({ onClose }: { onClose: () => void }) {
@@ -31,7 +31,7 @@ export default function Shortcuts({ onClose }: { onClose: () => void }) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Keyboard shortcuts"
+      aria-label="Phím tắt"
     >
       <div
         className="w-full max-w-sm animate-slide-up rounded-xl border border-line bg-surface p-5 shadow-xl"
@@ -39,7 +39,7 @@ export default function Shortcuts({ onClose }: { onClose: () => void }) {
       >
         <h2 className="flex items-center gap-2 font-semibold">
           <Keyboard />
-          Keyboard
+          Phím tắt
         </h2>
         <dl className="mt-3 space-y-1.5 text-sm">
           {KEYS.map(([key, what]) => (
@@ -54,7 +54,7 @@ export default function Shortcuts({ onClose }: { onClose: () => void }) {
           ))}
         </dl>
         <button onClick={onClose} className="btn-outline mt-4 w-full">
-          Close
+          Đóng
         </button>
       </div>
     </div>

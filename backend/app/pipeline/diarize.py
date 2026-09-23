@@ -33,6 +33,12 @@ class DiarParams:
     num_clusters: int = 0
     min_duration_on: float = 0.3
     min_duration_off: float = 0.5
+    #: Step of pyannote's 10 s sliding window as a fraction of the window. sherpa-onnx
+    #: defaults to 0.1 (1 s step); every step yields speaker embeddings, which are most
+    #: of diarization's cost. 0.2 halves the work: on the 14-minute VOV episode 147 s →
+    #: 71 s with 99.1 % of speech time keeping the same speaker. 0.3 was 3.1x faster but
+    #: moved ~5 % of speech to a different cluster, so it is not the default.
+    window_shift_ratio: float = 0.2
     num_threads: int = 3
 
     def as_json(self) -> dict:
@@ -44,6 +50,7 @@ class DiarParams:
             "num_clusters": self.num_clusters,
             "min_duration_on": self.min_duration_on,
             "min_duration_off": self.min_duration_off,
+            "window_shift_ratio": self.window_shift_ratio,
         }
 
 
@@ -55,11 +62,14 @@ def build_diarizer(params: DiarParams):
     """
     import sherpa_onnx
 
+    pyannote = sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
+        model=params.segmentation_model
+    )
+    pyannote.window_shift_ratio = params.window_shift_ratio
+
     cfg = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
-                model=params.segmentation_model
-            ),
+            pyannote=pyannote,
             num_threads=params.num_threads,
             provider="cpu",
         ),

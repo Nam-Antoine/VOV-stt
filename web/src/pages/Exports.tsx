@@ -1,18 +1,9 @@
-// PLAN §9: per-episode exports and the corpus zip.
+// Per-episode downloads: the punctuated reading copy as Word, PDF or TXT.
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api/client'
-
-const FORMATS = [
-  { fmt: 'docx', label: '.docx' },
-  { fmt: 'txt', label: '.txt' },
-  { fmt: 'verified.json', label: 'verified.json' },
-  { fmt: 'json', label: 'raw.json' },
-  { fmt: 'csv', label: '.csv' },
-  { fmt: 'srt', label: '.srt' },
-  { fmt: 'eaf', label: '.eaf' },
-]
+import ExportMenu from '../components/ExportMenu'
 
 export default function Exports() {
   const episodes = useQuery({ queryKey: ['episodes', ''], queryFn: () => api.listEpisodes() })
@@ -20,34 +11,25 @@ export default function Exports() {
 
   return (
     <section>
-      <header className="mb-4 flex items-baseline gap-3">
-        <h1 className="text-xl font-semibold">Exports</h1>
-        <span className="text-sm text-muted">
-          always regenerated from the raw JSON — nothing cached
-        </span>
+      <header className="mb-6 flex flex-wrap items-end gap-3">
+        <div>
+          <h1 className="title">Xuất file</h1>
+          <p className="mt-1.5 text-sm text-muted">
+            Bản có dấu câu, mỗi người nói một đoạn, mỗi câu một dòng.
+          </p>
+        </div>
+        <div className="sm:ml-auto">
+          <ExportMenu label="Tải tất cả" disabled={rows.length === 0} />
+        </div>
       </header>
 
-      <div className="mb-5 flex gap-2">
-        <a
-          href={api.corpusZipUrl('verified')}
-          className="btn-primary"
-        >
-          corpus.zip (verified)
-        </a>
-        <a
-          href={api.corpusZipUrl('all')}
-          className="btn-outline"
-        >
-          corpus.zip (all)
-        </a>
-      </div>
-
-      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+      {/* Not overflow-hidden: the download menu of the last row must be able to hang below. */}
+      <div className="rounded-xl border border-line bg-surface">
         <table className="w-full text-sm">
-          <thead className="bg-sunken text-left text-xs uppercase text-muted">
+          <thead className="text-left text-xs uppercase text-muted [&_th:first-child]:rounded-tl-xl [&_th:last-child]:rounded-tr-xl [&_th]:bg-sunken">
             <tr>
-              <th className="px-3 py-2">Episode</th>
-              <th className="px-3 py-2">Formats</th>
+              <th className="px-3 py-2">Tập</th>
+              <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -58,25 +40,15 @@ export default function Exports() {
                     {e.title || e.slug}
                   </Link>
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {FORMATS.map((f) => (
-                      <a
-                        key={f.fmt}
-                        href={api.exportUrl(e.id, f.fmt)}
-                        className="btn-outline btn-sm"
-                      >
-                        {f.label}
-                      </a>
-                    ))}
-                  </div>
+                <td className="px-3 py-2 text-right">
+                  <ExportMenu episodeId={e.id} disabled={e.speakers_pending} />
                 </td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={2} className="px-3 py-8 text-center text-faint">
-                  No transcribed episodes yet.
+                  Chưa có tập nào được chép lời.
                 </td>
               </tr>
             )}

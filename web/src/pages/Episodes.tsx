@@ -8,17 +8,20 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
-import { Search, Spinner, Upload } from '../components/Icons'
-import type { EpisodeListItem, EpisodeStatus, Job } from '../api/types'
+import { CloudUpload, Cycle, Play, Search, Spinner, Waveform } from '../components/Icons'
+import type { Episode, EpisodeListItem, EpisodeStatus, Job } from '../api/types'
+import { EPISODE_STATUS_LABEL } from '../labels'
 
+// Earthy, low-chroma chips: status is read at a glance but should not out-shout the
+// episode titles. Only `verified` is filled — it is the finish line.
 const STATUS_STYLE: Record<EpisodeStatus, string> = {
   ingested: 'bg-sunken text-muted',
-  queued: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  processing: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
-  transcribed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-  verifying: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
-  verified: 'bg-emerald-600 text-white',
-  failed: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
+  queued: 'bg-[#f1e4c8] text-[#7a5a12] dark:bg-[#3a2f18] dark:text-[#e3c27a]',
+  processing: 'bg-[#dbe7ef] text-[#2c5d7c] dark:bg-[#1c2c36] dark:text-[#9cc3dc]',
+  transcribed: 'bg-[#e1ead8] text-[#40652d] dark:bg-[#23301c] dark:text-[#a9cc94]',
+  verifying: 'bg-[#efdcd2] text-[#8a4b2a] dark:bg-[#3a261b] dark:text-[#e8b490]',
+  verified: 'bg-verified text-[#fbf9f4]',
+  failed: 'bg-[#f3dcd3] text-[#8a2d17] dark:bg-[#3a1f17] dark:text-[#f0b39c]',
 }
 
 const IN_FLIGHT = ['queued', 'processing']
@@ -28,8 +31,25 @@ const REALTIME_FACTOR = 5.1
 
 const AUTO_KEY = 'vnstt.autoTranscribe'
 
-export function StatusChip({ status }: { status: EpisodeStatus }) {
-  return <span className={`chip ${STATUS_STYLE[status] ?? ''}`}>{status}</span>
+/** The server's cap; checked here too so a huge file is skipped before it is sent. */
+const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+export function StatusChip({
+  status,
+  speakersPending = false,
+}: {
+  status: EpisodeStatus
+  /** Text is readable already; only the speaker labels are still being worked out. */
+  speakersPending?: boolean
+}) {
+  return (
+    <span className={`chip ${STATUS_STYLE[status] ?? ''}`}>
+      {(status === 'queued' || status === 'processing') && (
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden="true" />
+      )}
+      {speakersPending ? 'Đã có văn bản' : (EPISODE_STATUS_LABEL[status] ?? status)}
+    </span>
+  )
 }
 
 function duration(seconds: number | null) {
@@ -40,8 +60,8 @@ function duration(seconds: number | null) {
 }
 
 function humanEta(seconds: number) {
-  if (seconds < 60) return `${Math.max(1, Math.round(seconds))}s left`
-  return `${Math.round(seconds / 60)} min left`
+  if (seconds < 60) return `còn ${Math.max(1, Math.round(seconds))} giây`
+  return `còn ${Math.round(seconds / 60)} phút`
 }
 
 /**
@@ -64,7 +84,7 @@ function Progress({ episode, job, now }: {
     return (
       <div className="mt-1.5 flex items-center gap-2 text-xs text-muted">
         <Spinner className="h-3 w-3" />
-        {episode.status === 'queued' ? 'waiting for the worker' : 'transcribing'}
+        {episode.status === 'queued' ? 'đang chờ xử lý' : 'đang chép lời'}
       </div>
     )
   }
@@ -77,13 +97,51 @@ function Progress({ episode, job, now }: {
     <div className="mt-1.5 max-w-xs">
       <div className="h-1 overflow-hidden rounded-full bg-sunken">
         <div
-          className="h-full rounded-full bg-accent transition-[width] duration-1000 ease-linear"
+          className="h-full rounded-full bg-accent-strong transition-[width] duration-1000 ease-linear"
           style={{ width: `${fraction * 100}%` }}
         />
       </div>
       <div className="mt-1 text-xs tabular-nums text-muted">
-        transcribing · ~{humanEta(remaining)}
+        đang chép lời · ~{humanEta(remaining)}
       </div>
+    </div>
+  )
+}
+
+const STEPS = [
+  { Icon: CloudUpload, label: 'Tải file âm thanh lên' },
+  { Icon: Cycle, label: 'Chờ hệ thống chép lời xong' },
+  { Icon: Waveform, label: 'Nghe, sửa và duyệt bản chép lời' },
+]
+
+/** The reference's "three steps" strip. The step the operator is on is filled lime. */
+function Steps({ current }: { current: number }) {
+  return (
+    <div className="card px-4 py-6 sm:px-8">
+      <h2 className="text-center text-lg font-medium sm:text-xl">Chép lời trong ba bước</h2>
+      <ol className="mx-auto mt-6 grid max-w-3xl gap-4 sm:grid-cols-3 sm:gap-0">
+        {STEPS.map(({ Icon, label }, i) => (
+          <li key={label} className="relative flex items-center gap-3 sm:flex-col sm:gap-3 sm:text-center">
+            {/* Connector to the next step, drawn from this badge's centre. */}
+            {i < STEPS.length - 1 && (
+              <span
+                aria-hidden="true"
+                className="absolute left-[calc(50%+2.25rem)] right-[calc(-50%+2.25rem)] top-6 hidden h-px bg-line sm:block"
+              />
+            )}
+            <span
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${
+                i === current ? 'bg-accent text-accent-ink' : 'bg-sunken text-faint'
+              }`}
+            >
+              <Icon className="h-5 w-5" />
+            </span>
+            <span className={`text-sm ${i === current ? 'font-medium text-ink' : 'text-muted'}`}>
+              {label}
+            </span>
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }
@@ -150,10 +208,31 @@ export default function Episodes() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['episodes'] }),
   })
 
+  // Which file of the batch is on the wire, for "Đang tải lên 3/10".
+  const [progress, setProgress] = useState<{ index: number; total: number; name: string } | null>(null)
+
   const upload = useMutation({
-    mutationFn: async (files: FileList) => {
-      for (const file of Array.from(files)) {
-        const episode = await api.uploadEpisode(file)
+    mutationFn: async (fileList: FileList) => {
+      // A fresh upload always comes back `ingested`; anything else is an episode that
+      // already existed. Collected so the operator is told, not left staring at a
+      // list that did not change.
+      const repeats: Episode[] = []
+      // One bad file must not sink the batch: it is noted and the rest carry on.
+      const failures: { name: string; reason: string }[] = []
+      const files = Array.from(fileList)
+      for (const [i, file] of files.entries()) {
+        setProgress({ index: i + 1, total: files.length, name: file.name })
+        if (file.size > MAX_UPLOAD_BYTES) {
+          failures.push({ name: file.name, reason: 'lớn hơn 512 MB' })
+          continue
+        }
+        let episode: Episode
+        try {
+          episode = await api.uploadEpisode(file)
+        } catch (err) {
+          failures.push({ name: file.name, reason: err instanceof ApiError ? err.detail : 'tải lên thất bại' })
+          continue
+        }
         // One gesture: the file the operator just dropped is the file they want read.
         //
         // Upload dedupes on sha256 and hands back the EXISTING episode for a repeat
@@ -162,11 +241,24 @@ export default function Episodes() {
         // so only episodes actually waiting for one are queued.
         const waiting = episode.status === 'ingested' || episode.status === 'failed'
         if (auto && waiting) {
-          await api.transcribe(episode.id, { hotwords: true, diarize: true })
+          try {
+            await api.transcribe(episode.id, { hotwords: true, diarize: true })
+          } catch (err) {
+            failures.push({
+              name: file.name,
+              reason: `đã tải lên nhưng chưa xếp hàng chép lời (${err instanceof ApiError ? err.detail : 'lỗi'})`,
+            })
+          }
         }
+        if (episode.status !== 'ingested') repeats.push(episode)
+        // Each finished file shows up in the library straight away, not at the end.
+        queryClient.invalidateQueries({ queryKey: ['episodes'] })
       }
+      return { repeats, failures, total: files.length }
     },
-    onSuccess: () => {
+    onSettled: () => {
+      setProgress(null)
+      if (fileInput.current) fileInput.current.value = ''
       queryClient.invalidateQueries({ queryKey: ['episodes'] })
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
     },
@@ -176,32 +268,33 @@ export default function Episodes() {
 
   return (
     <section>
-      <header className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">Episodes</h1>
-        {rows.length > 0 && (
-          <span className="text-sm text-faint">{rows.length}</span>
-        )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm"
+        multiple
+        hidden
+        onChange={(e) => e.target.files && upload.mutate(e.target.files)}
+      />
 
-        <div className="relative ml-auto">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search title or slug"
-            aria-label="Search episodes"
-            className="field w-56 pl-8"
-          />
+      <header className="mb-5 flex flex-wrap items-center gap-3">
+        <div>
+          <p className="eyebrow">Kho ngữ liệu</p>
+          <h1 className="title mt-1">Tải lên và chép lời</h1>
         </div>
-
-        {ingested.length > 0 && (
-          <button
-            onClick={() => ingested.forEach((e) => transcribe.mutate(e.id))}
-            className="btn-outline"
-          >
-            Transcribe {ingested.length} waiting
-          </button>
-        )}
+        <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
+          {ingested.length > 0 && (
+            <button
+              onClick={() => ingested.forEach((e) => transcribe.mutate(e.id))}
+              className="btn-outline"
+            >
+              Chép lời {ingested.length} tập đang chờ
+            </button>
+          )}
+        </div>
       </header>
+
+      <Steps current={upload.isPending ? 0 : busy ? 1 : rows.some((e) => e.current_transcript_id) ? 2 : 0} />
 
       <div
         onDragOver={(e) => {
@@ -223,37 +316,48 @@ export default function Episodes() {
         }}
         role="button"
         tabIndex={0}
-        aria-label="Upload episode audio"
-        className={`mb-5 cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        aria-label="Tải lên âm thanh"
+        className={`mb-3 mt-4 flex min-h-[18rem] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-strong sm:min-h-[22rem] ${
           dragging
-            ? 'border-accent bg-accent/5'
-            : 'border-line bg-surface hover:border-accent/50'
+            ? 'border-accent-strong bg-accent/15'
+            : 'border-line bg-sunken hover:border-faint'
         }`}
       >
-        <input
-          ref={fileInput}
-          type="file"
-          accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm"
-          multiple
-          hidden
-          onChange={(e) => e.target.files && upload.mutate(e.target.files)}
-        />
         {upload.isPending ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-muted">
-            <Spinner className="h-4 w-4" />
-            Uploading…
+          <div className="flex items-center justify-center gap-2 text-base text-muted">
+            <Spinner className="h-5 w-5" />
+            <span className="min-w-0">
+              <span className="block">
+                {progress && progress.total > 1
+                  ? `Đang tải lên ${progress.index}/${progress.total}…`
+                  : 'Đang tải lên…'}
+              </span>
+              {progress && (
+                <span className="mt-1 block max-w-md truncate text-xs text-faint">{progress.name}</span>
+              )}
+            </span>
           </div>
         ) : (
           <>
-            <Upload className="mx-auto h-6 w-6 text-faint" />
-            <p className="mt-2 text-sm font-medium">
-              Drop audio here, or click to choose
+            <CloudUpload className="h-16 w-16 text-faint sm:h-20 sm:w-20" />
+            <p className="mt-5 max-w-lg text-lg leading-snug sm:text-xl">
+              Kéo thả hoặc <b className="font-semibold">CHỌN</b> một hoặc nhiều file âm thanh để tải lên
             </p>
-            <p className="mt-0.5 text-xs text-muted">
+            <p className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm text-muted">
+              <span>Có thể tải lên:</span>
+              <span className="inline-flex items-center gap-1.5 text-ink">
+                <Waveform className="h-4 w-4 text-faint" /> MP3, M4A, WAV
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-ink">
+                <Play className="h-3.5 w-3.5 text-faint" /> MP4, WEBM
+              </span>
+            </p>
+            <p className="mt-2 text-xs text-faint">
+              (tối đa 512 MB mỗi file ·{' '}
               {auto
-                ? 'Transcription starts automatically.'
-                : 'Files are staged; press Transcribe when you are ready.'}
-              {' '}mp3 · m4a · wav · webm · mp4
+                ? 'chép lời sẽ tự động bắt đầu'
+                : 'file được lưu chờ, bấm Chép lời khi bạn sẵn sàng'}
+              )
             </p>
           </>
         )}
@@ -267,34 +371,81 @@ export default function Episodes() {
           type="checkbox"
           checked={auto}
           onChange={(e) => setAuto(e.target.checked)}
-          className="accent-accent"
         />
-        Start transcribing as soon as a file finishes uploading
+        Tự động chép lời ngay khi tải file lên xong
       </label>
+
+      {upload.isSuccess && upload.data.failures.length > 0 && (
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300" role="alert">
+          <p className="font-medium">
+            {upload.data.failures.length}/{upload.data.total} file không tải lên được
+            {upload.data.failures.length < upload.data.total ? ' — các file còn lại vẫn tải lên bình thường' : ''}:
+          </p>
+          <ul className="mt-1 list-disc pl-5">
+            {upload.data.failures.map((f, i) => (
+              <li key={i}>
+                <span className="break-all font-medium">{f.name}</span>: {f.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {upload.isSuccess && upload.data.repeats.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {upload.data.repeats.map((e) => (
+            <p key={e.id}>
+              File âm thanh này đã được tải lên trước đó với tên{' '}
+              <Link to={`/episodes/${e.id}`} className="font-medium underline">
+                {e.title || e.slug}
+              </Link>{' '}
+              ({EPISODE_STATUS_LABEL[e.status] ?? e.status}). Không có tác vụ mới nào được thêm.
+            </p>
+          ))}
+        </div>
+      )}
 
       {upload.isError && (
         <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300">
-          {upload.error instanceof ApiError ? upload.error.detail : 'Upload failed'}
+          {upload.error instanceof ApiError ? upload.error.detail : 'Tải lên thất bại'}
         </p>
       )}
 
       {/* Mobile: cards. A five-column table at 375 px is unreadable. */}
-      <ul className="space-y-2 sm:hidden">
+      <div className="mb-3 mt-10 flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold">
+          Thư viện
+          {rows.length > 0 && (
+            <span className="ml-2 text-sm font-normal tabular-nums text-faint">{rows.length}</span>
+          )}
+        </h2>
+        <div className="relative w-full sm:ml-auto sm:w-auto">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm theo tên hoặc mã tập"
+            aria-label="Tìm tập"
+            className="field w-full pl-8 sm:w-64"
+          />
+        </div>
+      </div>
+      <ul className="divide-y divide-line border-y border-line sm:hidden">
         {rows.map((e) => (
-          <li key={e.id} className="card p-3">
+          <li key={e.id} className="py-3">
             <div className="flex items-start gap-2">
-              <Link to={`/episodes/${e.id}`} className="min-w-0 flex-1 font-medium">
+              <Link to={`/episodes/${e.id}`} className="min-w-0 flex-1 font-reading text-base font-medium">
                 <span className="block truncate">{e.title || e.slug}</span>
-                <span className="block truncate text-xs text-faint">{e.slug}</span>
+                <span className="block truncate font-sans text-xs font-normal text-faint">{e.slug}</span>
               </Link>
-              <StatusChip status={e.status} />
+              <StatusChip status={e.status} speakersPending={e.speakers_pending} />
             </div>
             <Progress episode={e} job={jobByEpisode.get(e.id)} now={now} />
             <div className="mt-2 flex items-center gap-3 text-xs text-muted">
               <span className="tabular-nums">{duration(e.duration_s)}</span>
               {e.n_utterances > 0 && (
                 <span className="tabular-nums">
-                  {e.n_verified}/{e.n_utterances} verified
+                  {e.n_verified}/{e.n_utterances} đã duyệt
                 </span>
               )}
               <span className="ml-auto">
@@ -303,11 +454,11 @@ export default function Episodes() {
                     onClick={() => transcribe.mutate(e.id)}
                     className="btn-outline btn-sm"
                   >
-                    Transcribe
+                    Chép lời
                   </button>
                 ) : e.current_transcript_id ? (
                   <Link to={`/episodes/${e.id}`} className="btn-outline btn-sm">
-                    Open
+                    Mở
                   </Link>
                 ) : null}
               </span>
@@ -316,53 +467,53 @@ export default function Episodes() {
         ))}
       </ul>
 
-      <div className="hidden overflow-hidden rounded-xl border border-line bg-surface sm:block">
+      <div className="hidden border-t border-line sm:block">
         <table className="w-full text-sm">
-          <thead className="bg-sunken text-left text-xs uppercase tracking-wide text-muted">
+          <thead className="whitespace-nowrap text-left text-[0.6875rem] uppercase tracking-[0.14em] text-faint">
             <tr>
-              <th className="px-4 py-2.5 font-medium">Episode</th>
-              <th className="px-4 py-2.5 font-medium">Length</th>
-              <th className="px-4 py-2.5 font-medium">Status</th>
-              <th className="px-4 py-2.5 font-medium">Verified</th>
-              <th className="px-4 py-2.5" />
+              <th className="py-3 pr-4 font-semibold">Tập</th>
+              <th className="py-3 pr-4 font-semibold">Thời lượng</th>
+              <th className="py-3 pr-4 font-semibold">Trạng thái</th>
+              <th className="py-3 pr-4 font-semibold">Đã duyệt</th>
+              <th className="py-3" />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="border-b border-line">
             {rows.map((e) => (
               <tr
                 key={e.id}
-                className="border-t border-line transition-colors hover:bg-sunken/50"
+                className="border-t border-line transition-colors hover:bg-sunken/60"
               >
-                <td className="px-4 py-3">
+                <td className="py-4 pr-4">
                   <Link
                     to={`/episodes/${e.id}`}
-                    className="font-medium hover:text-accent hover:underline"
+                    className="font-reading text-base font-medium hover:text-accent-strong"
                   >
                     {e.title || e.slug}
                   </Link>
                   <div className="text-xs text-faint">{e.slug}</div>
                   <Progress episode={e} job={jobByEpisode.get(e.id)} now={now} />
                 </td>
-                <td className="px-4 py-3 align-top tabular-nums text-muted">
+                <td className="py-4 pr-4 align-top tabular-nums text-muted">
                   {duration(e.duration_s)}
                 </td>
-                <td className="px-4 py-3 align-top">
-                  <StatusChip status={e.status} />
+                <td className="py-4 pr-4 align-top">
+                  <StatusChip status={e.status} speakersPending={e.speakers_pending} />
                 </td>
-                <td className="px-4 py-3 align-top tabular-nums text-muted">
+                <td className="py-4 pr-4 align-top tabular-nums text-muted">
                   {e.n_utterances ? `${e.n_verified} / ${e.n_utterances}` : '—'}
                 </td>
-                <td className="px-4 py-3 text-right align-top">
+                <td className="py-4 pr-4 text-right align-top">
                   {e.status === 'ingested' || e.status === 'failed' ? (
                     <button
                       onClick={() => transcribe.mutate(e.id)}
                       className="btn-outline btn-sm"
                     >
-                      Transcribe
+                      Chép lời
                     </button>
                   ) : e.current_transcript_id ? (
                     <Link to={`/episodes/${e.id}`} className="btn-outline btn-sm">
-                      Open
+                      Mở
                     </Link>
                   ) : null}
                 </td>
@@ -372,10 +523,10 @@ export default function Episodes() {
               <tr>
                 <td colSpan={5} className="px-4 py-12 text-center text-muted">
                   {episodes.isLoading
-                    ? 'Loading…'
+                    ? 'Đang tải…'
                     : q
-                      ? `Nothing matches “${q}”.`
-                      : 'No episodes yet — drop an audio file above.'}
+                      ? `Không có kết quả cho “${q}”.`
+                      : 'Chưa có tập nào — hãy thả file âm thanh vào ô phía trên.'}
                 </td>
               </tr>
             )}
@@ -385,7 +536,7 @@ export default function Episodes() {
 
       {rows.length === 0 && !episodes.isLoading && (
         <p className="py-8 text-center text-sm text-muted sm:hidden">
-          {q ? `Nothing matches “${q}”.` : 'No episodes yet — drop an audio file above.'}
+          {q ? `Không có kết quả cho “${q}”.` : 'Chưa có tập nào — hãy thả file âm thanh vào ô phía trên.'}
         </p>
       )}
     </section>

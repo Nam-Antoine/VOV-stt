@@ -58,6 +58,34 @@ def write(terms: list[str], path: Path) -> HotwordsFile:
     return HotwordsFile(path=path, sha256=digest, count=len(body.splitlines()))
 
 
+def unencodable(term: str, bpe_model: Path) -> list[str]:
+    """Pieces of ``term`` the model's BPE cannot encode (empty list = usable).
+
+    The vocabulary is UPPERCASE spoken form: ``Thanh Huyền`` encodes to
+    ``▁T <unk> ▁H <unk>`` and biases nothing, silently. This only *reports* — the term
+    is never rewritten here; the operator decides the spelling.
+    """
+    import sentencepiece as spm
+
+    sp = _processor(str(bpe_model), spm)
+    pieces = sp.encode(term, out_type=str)
+    ids = sp.encode(term)
+    words = term.split()
+    if any(i == sp.unk_id() for i in ids):
+        # Name the offending words, not BPE pieces: that is what the operator typed.
+        return [w for w in words if sp.unk_id() in sp.encode(w)] or pieces
+    return []
+
+
+_PROCESSORS: dict[str, object] = {}
+
+
+def _processor(path: str, spm):  # noqa: ANN001, ANN202 — sentencepiece module
+    if path not in _PROCESSORS:
+        _PROCESSORS[path] = spm.SentencePieceProcessor(model_file=path)
+    return _PROCESSORS[path]
+
+
 def read(path: Path) -> list[str]:
     """Read a hotwords file back, preserving order and spelling."""
     text = Path(path).read_text(encoding="utf-8")

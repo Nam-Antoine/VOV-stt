@@ -21,8 +21,14 @@ export interface WaveformPlayerHandle {
 }
 
 export interface WaveformPlayerProps {
-  /** api.audioUrl(transcriptId) — range-request streaming of the 16 kHz WAV. */
+  /** api.audioUrl(transcriptId) — range-request streaming (compressed copy or WAV). */
   src: string
+  /**
+   * Server-computed waveform. With it the player draws at once and streams the audio
+   * through <audio>; without it wavesurfer has to download and decode the whole file
+   * first (~10-15 s for a 14-minute episode).
+   */
+  peaks?: { duration: number; peaks: number[] } | null
   onTimeUpdate?: (seconds: number) => void
   onReady?: (duration: number) => void
 }
@@ -42,7 +48,7 @@ function token(name: string, fallback: string): string {
 const SPEEDS = [0.75, 1, 1.25, 1.5]
 
 const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerProps>(
-  function WaveformPlayer({ src, onTimeUpdate, onReady }, ref) {
+  function WaveformPlayer({ src, peaks, onTimeUpdate, onReady }, ref) {
     const container = useRef<HTMLDivElement>(null)
     const ws = useRef<WaveSurfer | null>(null)
     const loopRegion = useRef<{ start: number; end: number } | null>(null)
@@ -58,6 +64,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerProps>(
       const instance = WaveSurfer.create({
         container: container.current,
         url: src,
+        ...(peaks ? { peaks: [peaks.peaks], duration: peaks.duration } : {}),
         height: 72,
         waveColor: token('--wave', '#cbd5e1'),
         progressColor: token('--wave-played', '#4338ca'),
@@ -94,7 +101,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerProps>(
       // onTimeUpdate/onReady are intentionally excluded: they change identity every
       // render and re-creating the waveform would refetch the whole file.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [src])
+    }, [src, peaks])
 
     useImperativeHandle(ref, () => ({
       seekAndPlay(seconds: number) {
@@ -135,7 +142,7 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerProps>(
           <button
             onClick={() => ws.current?.playPause()}
             disabled={!ready}
-            aria-label={playing ? 'Pause' : 'Play'}
+            aria-label={playing ? 'Tạm dừng' : 'Phát'}
             className="btn-primary h-9 w-9 !px-0"
           >
             {playing ? <Pause /> : <Play />}
@@ -152,10 +159,10 @@ const WaveformPlayer = forwardRef<WaveformPlayerHandle, WaveformPlayerProps>(
                 setLooping(false)
               }}
               className="btn-outline btn-sm"
-              title="Stop looping this utterance"
+              title="Dừng lặp lượt lời này"
             >
               <Loop className="h-3.5 w-3.5" />
-              Looping
+              Đang lặp
             </button>
           )}
 

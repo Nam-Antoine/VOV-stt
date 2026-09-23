@@ -25,6 +25,7 @@ from .api import (
     jobs,
     speakers,
     transcripts,
+    users,
     utterances,
 )
 from .config import settings
@@ -60,7 +61,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, episodes, jobs, transcripts, utterances, speakers, hotwords, exports):
+for module in (auth, episodes, jobs, transcripts, utterances, speakers, hotwords, exports,
+               users):
     app.include_router(module.router, prefix="/api")
 
 

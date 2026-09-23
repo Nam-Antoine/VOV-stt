@@ -40,6 +40,8 @@ export interface EpisodeListItem extends Episode {
   current_transcript_id: string | null
   n_utterances: number
   n_verified: number
+  /** Current transcript is the ASR-only preview; speakers arrive when diarization ends. */
+  speakers_pending: boolean
 }
 
 export interface EpisodeDetail extends Episode {
@@ -48,6 +50,7 @@ export interface EpisodeDetail extends Episode {
   n_verified: number
   n_words: number
   speakers: Speaker[]
+  speakers_pending: boolean
 }
 
 export interface Word {
@@ -73,6 +76,9 @@ export interface Utterance {
   verified_by: string | null
   verified_at: string | null
   flags: string[]
+  /** Punctuated, cased reading of the current text. Derived — never corpus text.
+   *  null = not computed yet, or stale after an edit. */
+  text_readable: string | null
 }
 
 export interface Transcript {
@@ -86,6 +92,10 @@ export interface Transcript {
   words: Word[]
   utterances: Utterance[]
   speakers: Speaker[]
+  /** Preview: every speaker is -1 and the API refuses edits (409). */
+  speakers_pending: boolean
+  /** The punctuation model is installed on the server. */
+  readable_available: boolean
 }
 
 export interface Job {
@@ -132,4 +142,22 @@ export type UtteranceFlag = (typeof UTTERANCE_FLAGS)[number]
 /** The text a verifier sees: their own if they have typed one, else the engine's. */
 export function displayText(u: Utterance): string {
   return u.text_verified !== null ? u.text_verified : u.text_asr
+}
+
+export type Role = 'admin' | 'editor'
+
+/** The signed-in account (GET /auth/me). */
+export interface Me {
+  username: string
+  display_name: string | null
+  role: Role
+  /** False: the site has no login (the default deployment). */
+  auth_enabled: boolean
+}
+
+export interface User extends Me {
+  id: string
+  is_active: boolean
+  created_at: string | null
+  last_login_at: string | null
 }

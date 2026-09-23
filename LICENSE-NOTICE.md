@@ -19,6 +19,19 @@ The model is licensed **CC BY-NC-ND 4.0**.
 The sibling model `hynt/sherpa-onnx-zipformer-150m-vi-2026-09-09` is a separate work with a
 separate licence. Check it before using it for anything beyond the pilot A/B.
 
+## Punctuation model — `welcomyou/vibert-capu-onnx` (readable layer only)
+
+ONNX export of `dragonSwing/vibert-capu`, licensed **CC BY-SA 4.0**.
+
+- **Commercial use is allowed**, with attribution (BY) to `dragonSwing/vibert-capu` and
+  `welcomyou/vibert-capu-onnx`.
+- **Share-alike (SA)** binds adaptations *of the model*. We ship the files unmodified,
+  downloaded by `scripts/download_models.py`, and do not fine-tune them.
+- It produces the **readable layer** only (`utterances.text_readable`, the
+  `readable.txt` / `readable.docx` exports): punctuation and capitals for reading. The
+  verbatim corpus (`text_asr`, `text_verified` and every corpus export) never passes
+  through it (CLAUDE.md rule 1).
+
 ## Data residency
 
 Audio stays in Vietnam. Self-hosting is what answers the Decree 13/2023 cross-border

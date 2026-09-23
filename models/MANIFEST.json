@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "generated_at": "2026-09-22T15:06:10+00:00",
+  "generated_at": "2026-09-23T09:54:41+00:00",
   "asr": {
     "name": "zipformer-30m-rnnt-6000h",
     "hf_repo": "hynt/Zipformer-30M-RNNT-6000h",
@@ -25,6 +25,33 @@
       "bytes": 28281164,
       "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
       "note": "speaker embedding extractor"
+    },
+    {
+      "path": "punctuation/vibert-capu/vibert-capu.onnx",
+      "role": "punctuation-model",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vibert-capu.onnx",
+      "bytes": 459449409,
+      "sha256": "269a59c50977cef010292b1530a77df3073420ff6be409c1a55eeb77a8444e44",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
+    },
+    {
+      "path": "punctuation/vibert-capu/vocab.txt",
+      "role": "punctuation-vocab",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vocab.txt",
+      "bytes": 254703,
+      "sha256": "b32ccb4ca8bee5eda7a0f55f7adebaa515be742c9f765151ffefcd29fcb542a1",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
+    },
+    {
+      "path": "punctuation/vibert-capu/vocabulary/labels.txt",
+      "role": "punctuation-labels",
+      "repo": "welcomyou/vibert-capu-onnx",
+      "remote": "vocabulary/labels.txt",
+      "bytes": 248,
+      "sha256": "a31075cfa185b5d24c3b65c009ad0740636b286090f78419eaba2d34202c2b45",
+      "note": "ViBERT-capu ONNX; readable layer only, never corpus text"
     },
     {
       "path": "vad/silero_vad.onnx",

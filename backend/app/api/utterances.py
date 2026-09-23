@@ -16,17 +16,35 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import Utterance, UtteranceEdit, Word
+from ..models import Transcript, Utterance, UtteranceEdit, Word
 from ..schemas import UtteranceOut, UtterancePatch, UtteranceSplit
 from .deps import require_editor
 
 router = APIRouter(prefix="/utterances", tags=["utterances"])
 
 
+#: 409 detail while the transcript is the ASR-only preview.
+SPEAKERS_PENDING_DETAIL = "đang xác định người nói — vui lòng chờ xử lý xong rồi hãy sửa"
+
+
+def ensure_editable(transcript: Transcript | None) -> None:
+    """Refuse edits against a speakers-pending (ASR-only) transcript.
+
+    Its utterances are grouped without speaker turns, so the final transcript that
+    replaces it within minutes has different utterance boundaries: an edit made here
+    could not be carried over faithfully and would be left behind on a non-current
+    row. Refusing is the only option that never strands human work.
+    """
+    if transcript is not None and transcript.speakers_pending:
+        raise HTTPException(status_code=409, detail=SPEAKERS_PENDING_DETAIL)
+
+
 def _get(session: Session, utterance_id: uuid.UUID) -> Utterance:
+    """The utterance, for a write. Every route in this module writes."""
     utterance = session.get(Utterance, utterance_id)
     if utterance is None:
-        raise HTTPException(status_code=404, detail="utterance not found")
+        raise HTTPException(status_code=404, detail="không tìm thấy lượt lời")
+    ensure_editable(session.get(Transcript, utterance.transcript_id))
     return utterance
 
 
@@ -97,14 +115,14 @@ def split_utterance(
         .order_by(Word.i)
     ))
     if not words:
-        raise HTTPException(status_code=409, detail="no words in this utterance")
+        raise HTTPException(status_code=409, detail="lượt lời này không có từ nào")
 
     head = [w for w in words if w.i < body.at_word_i]
     tail = [w for w in words if w.i >= body.at_word_i]
     if not head or not tail:
         raise HTTPException(
             status_code=400,
-            detail=f"at_word_i={body.at_word_i} is outside this utterance "
+            detail=f"at_word_i={body.at_word_i} nằm ngoài lượt lời này "
                    f"({words[0].i}..{words[-1].i})",
         )
 
@@ -113,7 +131,7 @@ def split_utterance(
         # than silently mangle it.
         raise HTTPException(
             status_code=409,
-            detail="utterance has verified text; revert it before splitting",
+            detail="lượt lời đã có văn bản được duyệt; hãy khôi phục trước khi tách",
         )
 
     # Shift every later utterance up by one to keep `i` contiguous.
@@ -160,7 +178,7 @@ def merge_next(
                Utterance.i == utterance.i + 1)
     )
     if nxt is None:
-        raise HTTPException(status_code=409, detail="no following utterance")
+        raise HTTPException(status_code=409, detail="không có lượt lời tiếp theo")
 
     before = utterance.text_verified
     utterance.text_asr = f"{utterance.text_asr} {nxt.text_asr}"

@@ -42,7 +42,7 @@ export default function ConfidenceToggle({
         checked={enabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-      Show confidence
+      Hiện độ tin cậy
       {enabled && (
         <>
           <input
@@ -54,8 +54,8 @@ export default function ConfidenceToggle({
             onChange={(e) => onPercentileChange?.(Number(e.target.value))}
           />
           <span className="text-xs text-muted">
-            below p{percentile}
-            {threshold !== null ? ` (${threshold.toFixed(2)})` : ' (no conf data)'}
+            dưới p{percentile}
+            {threshold !== null ? ` (${threshold.toFixed(2)})` : ' (không có dữ liệu)'}
           </span>
         </>
       )}

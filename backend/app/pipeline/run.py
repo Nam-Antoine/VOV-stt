@@ -17,6 +17,7 @@ Prints a realtime factor and peak RSS at the end. PLAN §11 T1: the run must sta
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ import resource
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,23 +60,35 @@ class Stopwatch:
         self._t0 = now
         return self.stages[name]
 
+    def resume(self) -> None:
+        """Restart the clock without recording a stage (e.g. after an I/O pause)."""
+        self._t0 = time.perf_counter()
+
     @property
     def total_s(self) -> float:
         return sum(self.stages.values())
 
 
-def transcribe(
-    audio_path: Path,
-    *,
-    work_dir: Path,
-    asr_params: AsrParams,
-    vad_params: VadParams,
-    diar_params: DiarParams | None,
-    source_url: str | None = None,
-    episode_id: str | None = None,
-    hotwords_sha256: str | None = None,
-) -> dict:
-    """Run every stage and return the raw JSON document (PLAN §5 schema)."""
+@dataclass
+class AsrStage:
+    """Everything the ASR phase produced, held in memory until diarization finishes.
+
+    The worker publishes a speakers-pending transcript from this (:func:`preliminary_doc`)
+    and then hands the same object to :func:`finish`, so the final document is built
+    from exactly the words the preliminary one showed — ASR is never run twice.
+    """
+
+    info: audio_mod.AudioInfo
+    samples: object          # np.ndarray; kept untyped so tests need no numpy import
+    sample_rate: int
+    segments: list[tuple[float, float]]
+    words: list[dict]
+    watch: Stopwatch
+
+
+def run_asr(audio_path: Path, *, work_dir: Path, asr_params: AsrParams,
+            vad_params: VadParams) -> AsrStage:
+    """Stages audio → VAD → ASR. Seconds to a minute on a 14-minute episode."""
     watch = Stopwatch()
 
     log.info("audio: decoding %s to 16 kHz mono", audio_path)
@@ -99,37 +113,25 @@ def transcribe(
     )
     watch.mark("asr")
     log.info("asr: %d words", len(words))
+    return AsrStage(info=info, samples=samples, sample_rate=sample_rate,
+                    segments=segments, words=words, watch=watch)
 
-    diar_segments: list[dict] = []
-    if diar_params is not None:
-        log.info("diarize: running (this is the slow stage)")
 
-        def diar_progress(done: int, total: int) -> None:
-            if total and (done == total or done % max(1, total // 10) == 0):
-                log.info("diarize: %d%%", int(100 * done / total))
-
-        diar_segments = diarize_mod.diarize(
-            samples, sample_rate, diar_params, progress=diar_progress
-        )
-    else:
-        log.warning("diarize: skipped (--no-diarize); every word gets speaker -1")
-    watch.mark("diarize")
-
-    words, utterances = merge_mod.merge(words, diar_segments)
-    watch.mark("merge")
-
-    doc = {
+def _document(stage: AsrStage, words: list[dict], utterances: list[dict], *,
+              asr_params: AsrParams, vad_params: VadParams, diarization: dict | None,
+              source_url: str | None, episode_id: str | None,
+              hotwords_sha256: str | None) -> dict:
+    """The PLAN §5 raw JSON document, from a finished (or ASR-only) run."""
+    info, watch = stage.info, stage.watch
+    return {
         "schema_version": SCHEMA_VERSION,
         "episode_id": episode_id or str(uuid.uuid4()),
         "source": info.as_source_block(source_url),
         "audio": info.as_audio_block(),
         "engine": asr_mod.engine_block(asr_params, hotwords_sha256=hotwords_sha256),
         "vad": {**vad_params.as_json(),
-                "segments": [[round(s, 3), round(e, 3)] for s, e in segments]},
-        "diarization": (
-            {**diar_params.as_json(), "segments": diar_segments}
-            if diar_params is not None else None
-        ),
+                "segments": [[round(s, 3), round(e, 3)] for s, e in stage.segments]},
+        "diarization": diarization,
         "words": [
             {
                 "i": w["i"], "text": w["text"],
@@ -150,7 +152,84 @@ def transcribe(
             "peak_rss_mb": round(peak_rss_mb(), 1),
         },
     }
+
+
+def preliminary_doc(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
+                    source_url: str | None = None, episode_id: str | None = None,
+                    hotwords_sha256: str | None = None) -> dict:
+    """An ASR-only document to show while diarization runs.
+
+    It is a complete raw JSON in its own right — same words, same text, every speaker
+    ``-1`` exactly as a ``--no-diarize`` run — plus ``"speakers_pending": true`` so
+    nothing downstream mistakes it for a finished run. Written to its own file: the
+    final run gets a new file and a new transcript row, never an edit of this one
+    (PLAN §0.2).
+
+    The words are copied: :func:`merge.merge` assigns speakers in place, and the final
+    document must be built from untouched ASR output.
+    """
+    words = copy.deepcopy(stage.words)
+    words, utterances = merge_mod.merge(words, [])
+    doc = _document(stage, words, utterances, asr_params=asr_params,
+                    vad_params=vad_params, diarization=None, source_url=source_url,
+                    episode_id=episode_id, hotwords_sha256=hotwords_sha256)
+    doc["speakers_pending"] = True
     return doc
+
+
+def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
+           diar_params: DiarParams | None, source_url: str | None = None,
+           episode_id: str | None = None, hotwords_sha256: str | None = None) -> dict:
+    """Stages diarize → merge, and the final raw JSON document."""
+    watch = stage.watch
+    # Time spent publishing the preliminary transcript is not diarization time.
+    watch.resume()
+
+    diar_segments: list[dict] = []
+    if diar_params is not None:
+        log.info("diarize: running (this is the slow stage)")
+
+        def diar_progress(done: int, total: int) -> None:
+            if total and (done == total or done % max(1, total // 10) == 0):
+                log.info("diarize: %d%%", int(100 * done / total))
+
+        diar_segments = diarize_mod.diarize(
+            stage.samples, stage.sample_rate, diar_params, progress=diar_progress
+        )
+    else:
+        log.warning("diarize: skipped (--no-diarize); every word gets speaker -1")
+    watch.mark("diarize")
+
+    words, utterances = merge_mod.merge(stage.words, diar_segments)
+    watch.mark("merge")
+
+    return _document(
+        stage, words, utterances, asr_params=asr_params, vad_params=vad_params,
+        diarization=(
+            {**diar_params.as_json(), "segments": diar_segments}
+            if diar_params is not None else None
+        ),
+        source_url=source_url, episode_id=episode_id, hotwords_sha256=hotwords_sha256,
+    )
+
+
+def transcribe(
+    audio_path: Path,
+    *,
+    work_dir: Path,
+    asr_params: AsrParams,
+    vad_params: VadParams,
+    diar_params: DiarParams | None,
+    source_url: str | None = None,
+    episode_id: str | None = None,
+    hotwords_sha256: str | None = None,
+) -> dict:
+    """Run every stage and return the raw JSON document (PLAN §5 schema)."""
+    stage = run_asr(audio_path, work_dir=work_dir, asr_params=asr_params,
+                    vad_params=vad_params)
+    return finish(stage, asr_params=asr_params, vad_params=vad_params,
+                  diar_params=diar_params, source_url=source_url,
+                  episode_id=episode_id, hotwords_sha256=hotwords_sha256)
 
 
 def vad_mod_segment(samples, sample_rate, vad_params):
