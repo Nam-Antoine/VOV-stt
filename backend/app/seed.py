@@ -32,7 +32,7 @@ HOTWORD_SEED: list[tuple[str, float, str]] = [
     ("ĐỖ ANH VŨ", 1.5, "recurring guest"),
     ("QUẢN CHỒNG", 1.0, "recurring topic"),
     ("GIỮ CHỒNG", 1.0, "recurring topic"),
-    ("GIỮ LỪA", 1.0, "recurring topic"),
+    ("GIỮ LỬA", 1.0, "recurring topic"),
     ("NGOẠI TÌNH", 1.0, "recurring topic"),
     ("TÂM SỰ", 1.0, "recurring topic"),
     ("HÔN NHÂN", 1.0, "recurring topic"),
