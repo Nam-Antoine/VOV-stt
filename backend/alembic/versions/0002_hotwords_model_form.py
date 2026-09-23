@@ -34,7 +34,7 @@ RENAMES: list[tuple[str, str]] = [
     ("Đỗ Anh Vũ", "ĐỖ ANH VŨ"),
     ("quản chồng", "QUẢN CHỒNG"),
     ("giữ chồng", "GIỮ CHỒNG"),
-    ("giữ lửa", "GIỮ LỪA"),
+    ("giữ lửa", "GIỮ LỬA"),
     ("ngoại tình", "NGOẠI TÌNH"),
     ("tâm sự", "TÂM SỰ"),
     ("hôn nhân", "HÔN NHÂN"),
