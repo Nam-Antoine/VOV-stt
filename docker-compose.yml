@@ -1,0 +1,104 @@
+# vn-stt-corpus — PLAN §6 / §11 T0.
+# Four services: db, api, worker, caddy. One image for api + worker.
+# Target host: 4 vCPU / 6 GB RAM, CPU only. One worker, no parallel episodes.
+
+name: vn-stt-corpus
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vnstt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vnstt}
+      POSTGRES_DB: ${POSTGRES_DB:-vnstt}
+      # Vietnamese text: keep the DB in UTF-8 end to end.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vnstt} -d ${POSTGRES_DB:-vnstt}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Only exposed on localhost for psql/pg_dump; Caddy never sees it.
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://vnstt:vnstt@db:5432/vnstt}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+      - ./models:/data/models:ro      # populated by scripts/download_models.py
+      - ./backend:/srv/backend        # dev convenience; harmless in prod
+    # Behind Caddy (and host nginx for TLS): trust X-Forwarded-Proto so the session
+    # cookie is marked Secure on https. The api port is not published, so only
+    # containers on this network can reach it.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://vnstt:vnstt@db:5432/vnstt}
+      # PLAN §3 says 3 threads on a 4 vCPU box. This host also runs an unrelated
+      # stack, so the default is 2 and the worker is niced — see WORKER_NICE.
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+      - ./models:/data/models:ro      # populated by scripts/download_models.py
+    command: ["python", "-m", "app.worker"]
+    # CLAUDE.md rule 6: exactly one worker process. Do not scale this service.
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 4g
+          # Leave a vCPU and change for the API, Caddy and Postgres: an episode
+          # transcribing must never make the UI unresponsive.
+          cpus: "2.5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: [.env]
+    depends_on: [api]
+    # Host ports are configurable: on a box that already runs a web server, set
+    # HTTP_PORT/HTTPS_PORT in .env rather than fighting over :80.
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web/dist:/srv/web:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
