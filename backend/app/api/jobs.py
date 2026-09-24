@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_session
 from ..models import Job
@@ -14,6 +14,14 @@ from ..schemas import JobLog, JobOut
 from .deps import require_editor
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _out(job: Job) -> JobOut:
+    """The job plus its episode's name, so the queue reads as episodes, not ids."""
+    out = JobOut.model_validate(job)
+    if job.episode is not None:
+        out.episode_title = job.episode.title or job.episode.slug
+    return out
 
 
 @router.get("", response_model=list[JobOut])
@@ -24,10 +32,11 @@ def list_jobs(
     editor: str = Depends(require_editor),
 ) -> list[JobOut]:
     """Newest first, optional status filter."""
-    stmt = select(Job).order_by(Job.created_at.desc()).limit(limit)
+    stmt = (select(Job).options(selectinload(Job.episode))
+            .order_by(Job.created_at.desc()).limit(limit))
     if status:
         stmt = stmt.where(Job.status == status)
-    return [JobOut.model_validate(j) for j in session.scalars(stmt)]
+    return [_out(j) for j in session.scalars(stmt)]
 
 
 @router.post("/{job_id}/retry", response_model=JobOut)
@@ -50,7 +59,7 @@ def retry_job(
     # is re-queued only to be failed again on the first claim.
     job.attempts = 0
     session.commit()
-    return JobOut.model_validate(job)
+    return _out(job)
 
 
 @router.get("/{job_id}/log", response_model=JobLog)

@@ -1,6 +1,7 @@
 // PLAN §10: running job with live log tail (poll every 2 s), failed jobs with retry.
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 
 import { api } from '../api/client'
 import { JOB_KIND_LABEL, JOB_STATUS_LABEL } from '../labels'
@@ -54,6 +55,7 @@ export default function Jobs() {
         <table className="w-full text-sm">
           <thead className="bg-sunken text-left text-xs uppercase text-muted">
             <tr>
+              <th className="px-3 py-2">Tập</th>
               <th className="px-3 py-2">Loại</th>
               <th className="px-3 py-2">Trạng thái</th>
               <th className="px-3 py-2">Số lần thử</th>
@@ -64,7 +66,16 @@ export default function Jobs() {
           <tbody>
             {rows.map((j) => (
               <tr key={j.id} className="border-t border-line align-top">
-                <td className="px-3 py-2">{JOB_KIND_LABEL[j.kind] ?? j.kind}</td>
+                <td className="max-w-xs px-3 py-2">
+                  {j.episode_id ? (
+                    <Link to={`/episodes/${j.episode_id}`} className="block truncate hover:underline" title={j.episode_title ?? undefined}>
+                      {j.episode_title}
+                    </Link>
+                  ) : (
+                    <span className="text-faint">—</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">{JOB_KIND_LABEL[j.kind] ?? j.kind}</td>
                 <td className="px-3 py-2">
                   <span
                     className={`chip ${STATUS_STYLE[j.status] ?? ''}`}
@@ -101,7 +112,7 @@ export default function Jobs() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-faint">
+                <td colSpan={6} className="px-3 py-8 text-center text-faint">
                   Chưa có tác vụ nào.
                 </td>
               </tr>

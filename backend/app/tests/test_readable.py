@@ -262,3 +262,16 @@ def test_download_all_route_accepts_only_reading_formats(monkeypatch):
         assert client.get("/api/exports/all.zip").status_code == 503
     finally:
         app.dependency_overrides.clear()
+
+
+def test_download_is_named_after_the_episode_title():
+    from urllib.parse import unquote
+
+    from app.api.exports import attachment, file_stem
+
+    ep = SimpleNamespace(title='Phụ  nữ: "khí chất"?', slug="20211102-f29599")
+    assert file_stem(ep) == "Phụ nữ khí chất"
+    header = attachment(ep, "docx")
+    assert 'filename="20211102-f29599.docx"' in header
+    assert unquote(header.split("UTF-8''")[1]) == "Phụ nữ khí chất.docx"
+    assert file_stem(SimpleNamespace(title="", slug="ep1")) == "ep1"

@@ -163,6 +163,13 @@ function Steps({ current }: { current: number }) {
   )
 }
 
+/** Under the title: the air date when known (VOV episodes), else the file's slug. */
+function subtitle(e: { air_date: string | null; slug: string }) {
+  if (!e.air_date) return e.slug
+  const [y, m, d] = e.air_date.split('-')
+  return `Phát sóng ${d}/${m}/${y}`
+}
+
 export default function Episodes() {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -458,7 +465,7 @@ export default function Episodes() {
             <div className="flex items-start gap-2">
               <Link to={`/episodes/${e.id}`} className="min-w-0 flex-1 font-reading text-base font-medium">
                 <span className="block truncate">{e.title || e.slug}</span>
-                <span className="block truncate font-sans text-xs font-normal text-faint">{e.slug}</span>
+                <span className="block truncate font-sans text-xs font-normal text-faint">{subtitle(e)}</span>
               </Link>
               <StatusChip status={e.status} speakersPending={e.speakers_pending} />
             </div>
@@ -502,7 +509,7 @@ export default function Episodes() {
                   >
                     {e.title || e.slug}
                   </Link>
-                  <div className="text-xs text-faint">{e.slug}</div>
+                  <div className="text-xs text-faint">{subtitle(e)}</div>
                   <Progress episode={e} job={jobByEpisode.get(e.id)} now={now} />
                 </td>
                 <td className="py-4 pr-4 align-top tabular-nums text-muted">
