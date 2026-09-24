@@ -21,6 +21,9 @@
 /pilot/reference.*.txt
 /pilot/out/
 
+# --- local tools kept beside the app but not part of it (vov-harvester crawler)
+/crawling-tool/
+
 # --- python
 __pycache__/
 *.py[cod]
