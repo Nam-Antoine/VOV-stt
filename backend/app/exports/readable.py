@@ -28,6 +28,19 @@ from . import docx as _docx
 from . import speaker_label
 
 
+def reader_label(speakers: dict | None, cluster: int | None) -> str:
+    """The heading readers see: the typed label, else "Người nói 03" as on the web page.
+
+    Corpus exports keep the tool-friendly ``SPEAKER_03``; these documents are for people.
+    """
+    label = speaker_label(speakers, cluster)
+    if not label.startswith("SPEAKER_"):
+        return label
+    if cluster is None or cluster < 0:
+        return "Người nói không rõ"
+    return f"Người nói {cluster:02d}"
+
+
 def blocks(items: list[dict], speakers: dict | None) -> list[tuple[str, list[str]]]:
     """``[(speaker label, [sentence, ...]), ...]`` with consecutive speakers merged."""
     out: list[tuple[str, list[str]]] = []
@@ -35,7 +48,7 @@ def blocks(items: list[dict], speakers: dict | None) -> list[tuple[str, list[str
         text = (it.get("text") or "").strip()
         if not text:
             continue
-        label = speaker_label(speakers, it.get("speaker"))
+        label = reader_label(speakers, it.get("speaker"))
         if out and out[-1][0] == label:
             # Sentences can run across utterance boundaries: re-split the joined turn.
             out[-1] = (label, sentences(" ".join(out[-1][1] + [text])))
