@@ -132,6 +132,11 @@ def diarize(samples: np.ndarray, sample_rate: int, params: DiarParams,
 #: speech, the two similar voices were almost certainly merged (measured on the
 #: "Đàn bà 30+" episodes: 0.8 merged host and guest in ~10 of 133, e.g. 80 % / 7 %).
 DOMINANT_SHARE = 0.72
+#: Also merged: a big cluster with no second voice worth the name, i.e. no guest.
+#: ("Phụ nữ và chuyện kết hôn ở tuổi toan về già": 70 % / 9 % at 0.8, 45 % / 25 % at
+#: 0.6.) A talkative guest with a real host beside it (79 % / 14 %) is left alone.
+LEADING_SHARE = 0.60
+MISSING_SECOND = 0.12
 #: Thresholds tried in turn when that happens. Not the default: on well-separated
 #: episodes 0.7 cuts the guest into pieces (20 % -> 11 %), so they are used only where
 #: 0.8 merged voices. Some pairs need 0.6 ("Sau ly hôn": 80 % at 0.8, 77 % at 0.7,
@@ -142,27 +147,38 @@ RETRY_THRESHOLDS = (0.7, 0.6)
 MIN_GAIN = 0.10
 
 
-def top_share(segments: list[dict]) -> float:
-    """Share of speech time held by the largest cluster (0 when there is none)."""
+def shares(segments: list[dict]) -> list[float]:
+    """Share of speech time per cluster, largest first."""
     talk: Counter = Counter()
     for s in segments:
         talk[s["speaker"]] += s["end"] - s["start"]
     total = sum(talk.values())
-    return max(talk.values()) / total if total else 0.0
+    return sorted((v / total for v in talk.values()), reverse=True) if total else []
+
+
+def top_share(segments: list[dict]) -> float:
+    """Share of speech time held by the largest cluster (0 when there is none)."""
+    return (shares(segments) or [0.0])[0]
+
+
+def looks_merged(segments: list[dict]) -> bool:
+    """True when one cluster probably holds two voices (see :data:`DOMINANT_SHARE`)."""
+    top, second = (shares(segments) + [0.0, 0.0])[:2]
+    return top >= DOMINANT_SHARE or (top >= LEADING_SHARE and second < MISSING_SECOND)
 
 
 def diarize_adaptive(samples: np.ndarray, sample_rate: int, params: DiarParams,
                      *, progress=None) -> tuple[list[dict], DiarParams, dict | None]:
     """:func:`diarize`, retried at lower thresholds while one cluster holds most speech.
 
-    Stops at the first retry where no cluster reaches :data:`DOMINANT_SHARE`. If none
+    Stops at the first retry that no longer :func:`looks_merged`. If none
     gets there, the best retry is kept only when it gained :data:`MIN_GAIN`. Returns
     ``(segments, params_used, retry)``; ``retry`` is ``None`` when no retry ran, else
     what was tried, for the raw JSON.
     """
     segments = diarize(samples, sample_rate, params, progress=progress)
     first = top_share(segments)
-    if first < DOMINANT_SHARE:
+    if not looks_merged(segments):
         return segments, params, None
 
     best = (first, segments, params)
@@ -178,7 +194,7 @@ def diarize_adaptive(samples: np.ndarray, sample_rate: int, params: DiarParams,
         tried[str(threshold)] = round(share, 3)
         if share < best[0]:
             best = (share, segs, p)
-        if share < DOMINANT_SHARE:
+        if not looks_merged(segs):
             break
     if not tried:
         return segments, params, None
