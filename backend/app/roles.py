@@ -54,11 +54,16 @@ def guess_roles(turns: Iterable[tuple[int, float, float]]) -> dict[int, str]:
 
 
 def label_roles(session: Session, episode_id: uuid.UUID) -> dict[int, str]:
-    """Write default role labels unless the episode already has any label.
+    """(Re)write the default role labels unless a person has typed any label.
 
-    Any existing label means a person has named speakers (or a previous run already
-    did), so nothing is touched — a re-run never overwrites a verifier's work.
+    A re-run renumbers the clusters, so the previous run's role labels would now sit
+    on the wrong voices: they are dropped and recomputed. A label anyone typed is never
+    touched, and while one exists no role is added.
     """
+    for row in session.scalars(select(Speaker).where(
+            Speaker.episode_id == episode_id, Speaker.label.in_((HOST, GUEST)))):
+        row.label = None
+    session.flush()
     labelled = session.scalar(
         select(func.count()).select_from(Speaker)
         .where(Speaker.episode_id == episode_id, Speaker.label.is_not(None),

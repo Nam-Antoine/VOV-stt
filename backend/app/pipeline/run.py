@@ -200,13 +200,16 @@ def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
         log.warning("diarize: skipped (--no-diarize); every word gets speaker -1")
     watch.mark("diarize")
 
-    words, utterances = merge_mod.merge(stage.words, diar_segments)
+    # VAD segment edges are the pauses a speaker change should sit on.
+    pauses = sorted({t for seg in stage.segments for t in seg})
+    words, utterances = merge_mod.merge(stage.words, diar_segments, pauses=pauses)
     watch.mark("merge")
 
     return _document(
         stage, words, utterances, asr_params=asr_params, vad_params=vad_params,
         diarization=(
-            {**diar_params.as_json(), "segments": diar_segments}
+            {**diar_params.as_json(), "snap_to_vad_s": merge_mod.DEFAULT_SNAP_S,
+             "segments": diar_segments}
             if diar_params is not None else None
         ),
         source_url=source_url, episode_id=episode_id, hotwords_sha256=hotwords_sha256,
