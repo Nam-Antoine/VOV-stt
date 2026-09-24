@@ -186,6 +186,7 @@ def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
     watch.resume()
 
     diar_segments: list[dict] = []
+    diar_retry: dict | None = None
     if diar_params is not None:
         log.info("diarize: running (this is the slow stage)")
 
@@ -193,7 +194,7 @@ def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
             if total and (done == total or done % max(1, total // 10) == 0):
                 log.info("diarize: %d%%", int(100 * done / total))
 
-        diar_segments = diarize_mod.diarize(
+        diar_segments, diar_params, diar_retry = diarize_mod.diarize_adaptive(
             stage.samples, stage.sample_rate, diar_params, progress=diar_progress
         )
     else:
@@ -209,6 +210,7 @@ def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
         stage, words, utterances, asr_params=asr_params, vad_params=vad_params,
         diarization=(
             {**diar_params.as_json(), "snap_to_vad_s": merge_mod.DEFAULT_SNAP_S,
+             **({"retry": diar_retry} if diar_retry else {}),
              "segments": diar_segments}
             if diar_params is not None else None
         ),
