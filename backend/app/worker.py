@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import signal
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -115,6 +116,26 @@ def requeue_orphans(session) -> int:  # noqa: ANN001
 def beat(session) -> None:  # noqa: ANN001
     """Record that the worker is alive, for ``/api/health`` (PLAN §11 T5)."""
     session.execute(HEARTBEAT_SQL, {"value": json.dumps({"at": time.time()})})
+
+
+#: Seconds between heartbeats while a job runs. The UI calls the worker stalled after
+#: 120 s of silence, and one episode takes several minutes.
+HEARTBEAT_EVERY_S = 30.0
+
+
+def _beat_forever() -> None:
+    """Keep the heartbeat fresh during a job; ``run_once`` alone only beats between jobs.
+
+    A daemon thread with its own session, so it dies with the process: a crashed or
+    OOM-killed worker still goes quiet, which is what the header chip is for.
+    """
+    while not _stop:
+        try:
+            with session_scope() as session:
+                beat(session)
+        except Exception as exc:  # noqa: BLE001 — a DB blip must not kill the thread
+            log.debug("heartbeat skipped: %s", exc)
+        time.sleep(HEARTBEAT_EVERY_S)
 
 
 class Stopping(Exception):
@@ -445,6 +466,7 @@ def main() -> int:
             os.nice(settings.worker_nice)
         except OSError as exc:  # pragma: no cover — container may forbid it
             log.warning("could not renice worker: %s", exc)
+    threading.Thread(target=_beat_forever, name="heartbeat", daemon=True).start()
     log.info("worker up; polling every %.1fs", settings.worker_poll_interval_s)
 
     consecutive_errors = 0
