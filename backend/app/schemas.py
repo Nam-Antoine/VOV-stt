@@ -134,6 +134,7 @@ class EpisodeListItem(EpisodeOut):
 class JobOut(ORMModel):
     id: uuid.UUID
     episode_id: uuid.UUID | None
+    episode_title: str | None = None
     kind: str
     status: str
     attempts: int

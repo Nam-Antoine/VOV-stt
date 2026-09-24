@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
@@ -156,11 +158,26 @@ def export_episode(
     return Response(
         content=body,
         media_type=media_type,
-        headers={
-            "Content-Disposition":
-                f'attachment; filename="{episode.slug}.{suffix}"'
-        },
+        headers={"Content-Disposition": attachment(episode, suffix)},
     )
+
+
+def file_stem(episode: Episode) -> str:
+    """The episode's name as people know it, made safe to use as a file name.
+
+    Only characters no OS allows are dropped; Vietnamese letters stay. Falls back to
+    the slug for an untitled episode.
+    """
+    name = "".join(c if c.isprintable() else " " for c in episode.title or "")
+    name = re.sub(r'[\\/:*?"<>|]+', " ", name)
+    name = " ".join(name.split())[:120].rstrip(" .")
+    return name or episode.slug
+
+
+def attachment(episode: Episode, suffix: str) -> str:
+    """Content-Disposition naming the file after the title, with an ASCII fallback."""
+    return (f'attachment; filename="{episode.slug}.{suffix}"; '
+            f"filename*=UTF-8''{quote(f'{file_stem(episode)}.{suffix}')}")
 
 
 @router.get("/exports/corpus.zip")
@@ -246,9 +263,11 @@ def all_readable_zip(
             except HTTPException as exc:
                 skipped.append(f"{episode.title or episode.slug}: {exc.detail}")
                 continue
-            name = episode.slug
-            while f"{name}.{suffix}" in used:  # slugs are unique; guard anyway
-                name += "_"
+            stem = name = file_stem(episode)
+            n = 1
+            while f"{name}.{suffix}" in used:  # two episodes can share a title
+                n += 1
+                name = f"{stem} ({n})"
             used.add(f"{name}.{suffix}")
             archive.writestr(f"{name}.{suffix}", body)
         if skipped:

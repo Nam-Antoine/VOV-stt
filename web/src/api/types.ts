@@ -101,6 +101,7 @@ export interface Transcript {
 export interface Job {
   id: string
   episode_id: string | null
+  episode_title: string | null
   kind: JobKind
   status: JobStatus
   attempts: number
