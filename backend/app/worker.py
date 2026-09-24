@@ -31,6 +31,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
+from . import roles as roles_mod
 from .config import settings
 from .db import session_scope
 
@@ -252,6 +253,9 @@ def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
         raise
 
     readable_note = add_readable_layer(session, transcript_id)
+    roles = roles_mod.label_roles(session, episode.id)
+    if roles:
+        readable_note += f", roles {sorted(roles.values())}"
 
     audio_block = doc.get("audio") or {}
     if audio_block.get("duration_s"):
