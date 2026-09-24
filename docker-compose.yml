@@ -70,6 +70,9 @@ services:
     volumes:
       - ./data:/data
       - ./models:/data/models:ro      # populated by scripts/download_models.py
+      # Same code as the api: without this the worker kept running its image's copy
+      # after a `restart`, and re-runs silently used an older pipeline.
+      - ./backend:/srv/backend
     command: ["python", "-m", "app.worker"]
     # CLAUDE.md rule 6: exactly one worker process. Do not scale this service.
     deploy:
