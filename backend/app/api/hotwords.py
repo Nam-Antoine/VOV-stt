@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_session
 from ..models import Episode, Hotword, Job, Transcript, Utterance
-from ..schemas import HotwordIn, HotwordOut, HotwordPatch, JobOut
+from ..schemas import HotwordIn, HotwordOut, HotwordPatch, HotwordSuggestion, JobOut
 from .deps import require_admin, require_editor
 
 router = APIRouter(prefix="/hotwords", tags=["hotwords"])
@@ -47,6 +47,27 @@ def list_hotwords(
         for h in session.scalars(
             select(Hotword).order_by(Hotword.weight.desc(), Hotword.term)
         )
+    ]
+
+
+@router.get("/suggestions", response_model=list[HotwordSuggestion])
+def hotword_suggestions(
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> list[HotwordSuggestion]:
+    """Phrases verifiers corrected, most frequent first, not yet hotwords.
+
+    The licence forbids fine-tuning the model (rule 8); hotwords are how its mistakes
+    feed back. Terms the model cannot encode are left out — they could never be added.
+    """
+    from ..corrections import suggestions
+    from ..pipeline.hotwords import unencodable
+
+    bpe = settings.asr_model_dir / "bpe.model"
+    return [
+        HotwordSuggestion(term=s.term, count=s.count, examples=s.examples)
+        for s in suggestions(session)
+        if not (bpe.exists() and unencodable(s.term, bpe))
     ]
 
 

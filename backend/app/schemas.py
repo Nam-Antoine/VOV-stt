@@ -245,6 +245,19 @@ class HotwordOut(ORMModel, HotwordIn):
     created_at: datetime
 
 
+class CorrectionExample(BaseModel):
+    episode_id: uuid.UUID
+    title: str
+    heard: str          # the engine's words
+    corrected: str      # as the verifier typed them
+
+
+class HotwordSuggestion(BaseModel):
+    term: str
+    count: int
+    examples: list[CorrectionExample]
+
+
 # --- misc -------------------------------------------------------------------
 
 class Stats(BaseModel):
