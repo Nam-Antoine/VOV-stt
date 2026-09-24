@@ -28,7 +28,7 @@ class DiarParams:
 
     segmentation_model: str
     embedding_model: str
-    threshold: float = 0.7
+    threshold: float = 0.8
     #: 0 means "let the clustering decide" (PLAN §5). sherpa-onnx spells that -1.
     num_clusters: int = 0
     min_duration_on: float = 0.3

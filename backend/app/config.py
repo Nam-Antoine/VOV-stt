@@ -69,7 +69,7 @@ class Settings(BaseSettings):
         "/data/models/diarization/speaker-embedding/"
         "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
     )
-    diar_threshold: float = 0.7
+    diar_threshold: float = 0.8
     diar_num_clusters: int = 0
     diar_min_duration_on: float = 0.3
     diar_min_duration_off: float = 0.5
