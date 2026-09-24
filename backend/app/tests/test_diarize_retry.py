@@ -74,5 +74,21 @@ def test_steps_down_until_voices_separate(fake):
     assert retry["tried"] == {"0.7": 0.77, "0.6": 0.53}
 
 
+def test_missing_guest_triggers_retry_below_the_dominant_share(fake):
+    by, calls = fake
+    by[0.8] = segs(0.70, 0.09, 0.08, 0.08, 0.05)
+    by[0.7] = segs(0.70, 0.09, 0.08, 0.08, 0.05)
+    by[0.6] = segs(0.45, 0.25, 0.09, 0.08, 0.13)
+    out, used, retry = run()
+    assert calls == [0.8, 0.7, 0.6] and used.threshold == 0.6
+
+
+def test_talkative_guest_beside_a_real_host_is_left_alone(fake):
+    by, calls = fake
+    by[0.8] = segs(0.71, 0.14, 0.15)
+    out, used, retry = run()
+    assert calls == [0.8] and retry is None
+
+
 def test_top_share_empty():
     assert dz.top_share([]) == 0.0
