@@ -145,7 +145,7 @@ def test_readable_txt_matches_the_reference_layout():
         "MC Ngọc Hà:\n"
         "Kính chào quý vị.\n"
         "Hôm nay chúng ta nói về tuổi ba mươi.\n\n"
-        "SPEAKER_01:\n"
+        "Người nói 01:\n"
         "Xin chào.\n"
         "Vâng?\n"
     )
