@@ -122,6 +122,13 @@ export interface Hotword {
   created_at: string
 }
 
+/** A phrase verifiers corrected, offered as a hotword (the model can't be fine-tuned). */
+export interface HotwordSuggestion {
+  term: string
+  count: number
+  examples: { episode_id: string; title: string; heard: string; corrected: string }[]
+}
+
 export interface Stats {
   episodes_by_status: Record<string, number>
   hours_transcribed: number

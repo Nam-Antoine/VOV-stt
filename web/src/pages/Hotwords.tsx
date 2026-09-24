@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, ApiError } from '../api/client'
 import { useIsAdmin } from '../api/session'
+import HotwordSuggestions from '../components/HotwordSuggestions'
 
 export default function Hotwords() {
   const queryClient = useQueryClient()
@@ -117,6 +118,8 @@ export default function Hotwords() {
           </p>
         )}
       </form>)}
+
+      <HotwordSuggestions canAdd={isAdmin} />
 
       <div className="overflow-hidden rounded-xl border border-line bg-surface">
         <table className="w-full text-sm">

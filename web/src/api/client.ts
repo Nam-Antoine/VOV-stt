@@ -7,6 +7,7 @@ import type {
   EpisodeListItem,
   Health,
   Hotword,
+  HotwordSuggestion,
   Job,
   Me,
   Role,
@@ -146,6 +147,7 @@ export const api = {
 
   // --- hotwords ----------------------------------------------------------
   listHotwords: () => request<Hotword[]>('/hotwords'),
+  hotwordSuggestions: () => request<HotwordSuggestion[]>('/hotwords/suggestions'),
   createHotword: (payload: { term: string; weight?: number; note?: string }) =>
     request<Hotword>('/hotwords', { method: 'POST', body: body(payload) }),
   patchHotword: (id: number, patch: Partial<Hotword>) =>
