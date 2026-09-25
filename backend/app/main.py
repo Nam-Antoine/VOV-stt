@@ -23,7 +23,6 @@ from .api import (
     exports,
     hotwords,
     jobs,
-    speakers,
     transcripts,
     users,
     utterances,
@@ -61,8 +60,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, episodes, jobs, transcripts, utterances, speakers, hotwords, exports,
-               users):
+for module in (auth, episodes, jobs, transcripts, utterances, hotwords, exports, users):
     app.include_router(module.router, prefix="/api")
 
 
