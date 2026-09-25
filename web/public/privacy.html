@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chính sách quyền riêng tư — VOV STT</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root { --bg: #fbfaf7; --ink: #1d1d1b; --muted: #5d5b55; --line: #e4e1d8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161614; --ink: #ecebe6; --muted: #a8a59c; --line: #33322e; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 32px 0 8px; }
+  p, li { color: var(--ink); }
+  .meta { color: var(--muted); font-size: .9rem; margin: 0 0 24px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 48px 0; }
+  code { font-size: .92em; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chính sách quyền riêng tư</h1>
+  <p class="meta">VOV STT (vovstt.io.vn) · Cập nhật ngày 25/09/2026</p>
+
+  <p>VOV STT là công cụ nội bộ chép lời các chương trình phát thanh “Đàn bà 30+” của VOV
+  thành văn bản. Trang này giải thích ứng dụng dùng dữ liệu Google của bạn như thế nào.</p>
+
+  <h2>Quyền truy cập Google</h2>
+  <p>Ứng dụng chỉ xin một quyền: <code>drive.file</code>. Với quyền này, ứng dụng chỉ
+  tạo và cập nhật được những tệp do chính nó tạo ra trong Google Drive của bạn: một thư
+  mục, một Google Sheet mục lục và mỗi tập một Google Doc chứa bản chép lời. Ứng dụng
+  <strong>không</strong> đọc, không liệt kê và không sửa bất kỳ tệp nào khác trong Drive
+  của bạn, và không truy cập Gmail, danh bạ hay dữ liệu Google nào khác.</p>
+
+  <h2>Ứng dụng lưu gì</h2>
+  <ul>
+    <li>Một mã truy cập (token) Google, lưu trên máy chủ của ứng dụng, không công khai
+    và không đưa vào mã nguồn.</li>
+    <li>Mã định danh của các tệp ứng dụng đã tạo, để lần sau cập nhật đúng tệp.</li>
+  </ul>
+  <p>Ứng dụng không bán, không chia sẻ và không chuyển dữ liệu Google của bạn cho bên
+  thứ ba, và không dùng nó cho quảng cáo hay để huấn luyện mô hình AI.</p>
+
+  <h2>Xoá dữ liệu và thu hồi quyền</h2>
+  <p>Bạn có thể thu hồi quyền bất cứ lúc nào tại
+  <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
+  Sau đó ứng dụng không truy cập được Drive của bạn nữa. Các tệp đã tạo vẫn thuộc về bạn
+  và bạn có thể xoá chúng trong Drive; ứng dụng không bao giờ tự xoá tệp.</p>
+
+  <p>Việc sử dụng thông tin nhận được từ các API của Google tuân theo
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Chính sách
+  dữ liệu người dùng của Google API Services</a>, bao gồm các yêu cầu về Sử dụng giới hạn
+  (Limited Use).</p>
+
+  <hr>
+
+  <h1 lang="en">Privacy policy</h1>
+  <p class="meta" lang="en">VOV STT (vovstt.io.vn) · Updated 25 September 2026</p>
+
+  <div lang="en">
+  <p>VOV STT is an internal tool that transcribes episodes of the VOV radio programme
+  “Đàn bà 30+”. This page explains how it uses your Google data.</p>
+
+  <h2>Google access</h2>
+  <p>The app requests a single scope, <code>drive.file</code>. It can only create and
+  update files that it created itself in your Google Drive: one folder, one index Google
+  Sheet and one Google Doc per episode containing its transcript. It does
+  <strong>not</strong> read, list or modify any other file in your Drive, and it does not
+  access Gmail, contacts or any other Google data.</p>
+
+  <h2>What the app stores</h2>
+  <ul>
+    <li>A Google access token, kept on the app's server, never published and never
+    committed to source code.</li>
+    <li>The IDs of the files it created, so later updates go to the same files.</li>
+  </ul>
+  <p>The app does not sell, share or transfer your Google data to third parties, and does
+  not use it for advertising or to train AI models.</p>
+
+  <h2>Deleting data and revoking access</h2>
+  <p>You can revoke access at any time at
+  <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
+  The app then can no longer reach your Drive. The files it created remain yours and you
+  may delete them in Drive; the app never deletes files.</p>
+
+  <p>The app's use of information received from Google APIs adheres to the
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API
+  Services User Data Policy</a>, including the Limited Use requirements.</p>
+  </div>
+</main>
+</body>
+</html>
