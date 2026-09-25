@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Enqueue transcribe jobs for every audio file without a current transcript (PLAN §11 T5).
 
-The 129-episode backlog is ~32 h of audio: roughly 1 h of ASR plus ~4 h of diarization
-on the 4 vCPU box. Run it overnight, then check that no job ended ``failed`` before
+The 129-episode backlog is ~32 h of audio: roughly 1-2 h of ASR plus punctuation on the
+4 vCPU box. Run it overnight, then check that no job ended ``failed`` before
 declaring the backlog done.
 
     python scripts/backfill.py --dry-run

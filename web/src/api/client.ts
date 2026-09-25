@@ -103,11 +103,6 @@ export const api = {
   exportEpisode: (id: string) =>
     request<Job>(`/episodes/${id}/export`, { method: 'POST' }),
   deleteEpisode: (id: string) => request<void>(`/episodes/${id}`, { method: 'DELETE' }),
-  setSpeakerLabel: (episodeId: string, cluster: number, label: string) =>
-    request<{ label: string }>(`/episodes/${episodeId}/speakers/${cluster}`, {
-      method: 'PUT',
-      body: body({ label }),
-    }),
 
   // --- jobs --------------------------------------------------------------
   listJobs: (status?: string) =>
@@ -117,7 +112,7 @@ export const api = {
 
   // --- transcripts -------------------------------------------------------
   getTranscript: (id: string) => request<Transcript>(`/transcripts/${id}`),
-  /** Bring the punctuated reading layer up to date (only changed turns are redone). */
+  /** Bring the punctuated reading layer up to date (only changed passages are redone). */
   refreshReadable: (id: string) =>
     request<{ written: number }>(`/transcripts/${id}/readable`, { method: 'POST' }),
   audioUrl: (id: string) => `${BASE}/transcripts/${id}/audio`,
@@ -130,7 +125,7 @@ export const api = {
   // rule 1 applies on this side of the wire too.
   patchUtterance: (
     id: string,
-    patch: Partial<Pick<Utterance, 'text_verified' | 'speaker' | 'flags'>> & {
+    patch: Partial<Pick<Utterance, 'text_verified' | 'flags'>> & {
       start_s?: number
       end_s?: number
     },

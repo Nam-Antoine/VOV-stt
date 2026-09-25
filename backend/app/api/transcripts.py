@@ -17,8 +17,8 @@ from .. import player
 from .. import readable as readable_mod
 from ..config import settings
 from ..db import get_session
-from ..models import Episode, Speaker, Transcript, Utterance, Word
-from ..schemas import SpeakerOut, TranscriptOut, UtteranceOut, WordOut
+from ..models import Episode, Transcript, Utterance, Word
+from ..schemas import TranscriptOut, UtteranceOut, WordOut
 from .deps import refresh_readable_layer, require_editor
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
@@ -43,7 +43,7 @@ def get_transcript(
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> TranscriptOut:
-    """Words + utterances + speakers — what the editor loads in one request.
+    """Words + utterances — what the editor loads in one request.
 
     A 15-minute episode is a few thousand words. They go in one payload rather than
     being paginated, so click-to-play never has a gap to load across.
@@ -53,7 +53,7 @@ def get_transcript(
     words = [
         WordOut(i=w.i, text=w.text, start_s=float(w.start_s),
                 end_s=None if w.end_s is None else float(w.end_s),
-                conf=None if w.conf is None else float(w.conf), speaker=w.speaker)
+                conf=None if w.conf is None else float(w.conf))
         for w in session.scalars(
             select(Word).where(Word.transcript_id == transcript.id).order_by(Word.i)
         )
@@ -68,14 +68,6 @@ def get_transcript(
             .order_by(Utterance.i)
         )
     ]
-    speakers = [
-        SpeakerOut(cluster=int(c), label=label)
-        for c, label in session.execute(
-            select(Speaker.cluster, Speaker.label)
-            .where(Speaker.episode_id == transcript.episode_id)
-            .order_by(Speaker.cluster)
-        ).all()
-    ]
     return TranscriptOut(
         id=transcript.id,
         episode_id=transcript.episode_id,
@@ -84,11 +76,9 @@ def get_transcript(
         params=transcript.params,
         hotwords_sha256=transcript.hotwords_sha256,
         created_at=transcript.created_at,
-        speakers_pending=transcript.speakers_pending,
         readable_available=settings.punct_available(),
         words=words,
         utterances=utterances,
-        speakers=speakers,
     )
 
 

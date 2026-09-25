@@ -1,6 +1,6 @@
 """ELAN (.eaf) export — ELAN Annotation Format 3.0 (PLAN §1.5, §11 T3).
 
-One tier per speaker label, one annotation per utterance, with shared time slots so ELAN
+One tier (``transcript``), one annotation per utterance, with shared time slots so ELAN
 can click-to-play against the episode's 16 kHz WAV.
 
 EAF structure, briefly:
@@ -8,7 +8,7 @@ EAF structure, briefly:
     ANNOTATION_DOCUMENT
       HEADER          media descriptor + ms time units
       TIME_ORDER      TIME_SLOT id -> TIME_VALUE in **milliseconds**
-      TIER *          one per speaker; ALIGNABLE_ANNOTATION referencing two slots
+      TIER            "transcript"; ALIGNABLE_ANNOTATION referencing two slots
       LINGUISTIC_TYPE the tiers' type ("utterance", time-alignable)
 
 Text goes into ANNOTATION_VALUE exactly as it is. XML escaping of ``&``/``<`` is
@@ -22,9 +22,10 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import TIER_ASR, speaker_label, utterance_text
+from . import TIER_ASR, utterance_text
 
 EAF_VERSION = "3.0"
+TIER_ID = "transcript"
 LINGUISTIC_TYPE = "utterance"
 
 
@@ -58,7 +59,7 @@ def _ms(seconds) -> int:
     return int(round(float(seconds or 0.0) * 1000))
 
 
-def build(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
+def build(doc: dict, *, tier: str = TIER_ASR,
           media_url: str | None = None, author: str = "vn-stt-corpus") -> ET.ElementTree:
     """Build the EAF document tree."""
     root = ET.Element(
@@ -88,35 +89,22 @@ def build(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
         ET.SubElement(time_order, "TIME_SLOT",
                       {"TIME_SLOT_ID": slot_id, "TIME_VALUE": str(value)})
 
-    # Group utterances by speaker label: one ELAN tier per label.
-    by_tier: dict[str, list[tuple[int, dict]]] = {}
+    tier_el = ET.SubElement(
+        root, "TIER", {"LINGUISTIC_TYPE_REF": LINGUISTIC_TYPE, "TIER_ID": TIER_ID},
+    )
     for n, u in enumerate(utterances):
-        by_tier.setdefault(speaker_label(speakers, u.get("speaker")), []).append((n, u))
-
-    annotation_id = 0
-    for tier_name, rows in by_tier.items():
-        tier_el = ET.SubElement(
-            root, "TIER",
+        ann = ET.SubElement(tier_el, "ANNOTATION")
+        start_id, end_id = bounds[n]
+        alignable = ET.SubElement(
+            ann, "ALIGNABLE_ANNOTATION",
             {
-                "LINGUISTIC_TYPE_REF": LINGUISTIC_TYPE,
-                "TIER_ID": tier_name,
-                "PARTICIPANT": tier_name,
+                "ANNOTATION_ID": f"a{n + 1}",
+                "TIME_SLOT_REF1": start_id,
+                "TIME_SLOT_REF2": end_id,
             },
         )
-        for n, u in rows:
-            annotation_id += 1
-            ann = ET.SubElement(tier_el, "ANNOTATION")
-            start_id, end_id = bounds[n]
-            alignable = ET.SubElement(
-                ann, "ALIGNABLE_ANNOTATION",
-                {
-                    "ANNOTATION_ID": f"a{annotation_id}",
-                    "TIME_SLOT_REF1": start_id,
-                    "TIME_SLOT_REF2": end_id,
-                },
-            )
-            # Verbatim. ElementTree escapes &, < and > on write and unescapes on read.
-            ET.SubElement(alignable, "ANNOTATION_VALUE").text = utterance_text(u, tier)
+        # Verbatim. ElementTree escapes &, < and > on write and unescapes on read.
+        ET.SubElement(alignable, "ANNOTATION_VALUE").text = utterance_text(u, tier)
 
     ET.SubElement(
         root, "LINGUISTIC_TYPE",
@@ -129,16 +117,14 @@ def build(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
     return ET.ElementTree(root)
 
 
-def render(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
-           media_url: str | None = None) -> str:
+def render(doc: dict, *, tier: str = TIER_ASR, media_url: str | None = None) -> str:
     """Return the EAF as a UTF-8 XML string."""
-    tree = build(doc, tier=tier, speakers=speakers, media_url=media_url)
+    tree = build(doc, tier=tier, media_url=media_url)
     ET.indent(tree, space="    ")
     return ET.tostring(tree.getroot(), encoding="unicode", xml_declaration=True) + "\n"
 
 
-def write(doc: dict, path, *, tier: str = TIER_ASR, speakers: dict | None = None,
-          media_url: str | None = None) -> None:
+def write(doc: dict, path, *, tier: str = TIER_ASR, media_url: str | None = None) -> None:
     Path(path).write_text(
-        render(doc, tier=tier, speakers=speakers, media_url=media_url), encoding="utf-8"
+        render(doc, tier=tier, media_url=media_url), encoding="utf-8"
     )

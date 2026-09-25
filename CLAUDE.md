@@ -12,7 +12,8 @@ Read PLAN.md first. Key rules:
 6. One worker process, ASR num_threads=3, no parallel episodes (4 vCPU / 6 GB box).
 7. No LLM calls in the pipeline or the app. No anthropic/openai packages.
 8. Licence: model is CC BY-NC-ND 4.0. Keep LICENSE-NOTICE.md. Don't fine-tune or re-export.
-9. Don't build speaker identification of real people; labels are per-episode cluster → free text.
+9. No diarization and no speaker labels anywhere (removed 25 Sep 2026). Don't add them back,
+   and never build speaker identification of real people.
 10. Do not start T3+ until pilot/RESULTS.md shows the verbatim gate passed and is signed off.
 
 Commands: `make dev`, `make test`, `make pilot`, `make deploy`, `make export EP=<slug>`.

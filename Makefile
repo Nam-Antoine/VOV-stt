@@ -32,7 +32,7 @@ env: .env ## Create .env from .env.example if missing
 # ---------------------------------------------------------------------------
 # Models (PLAN §11 T0) — idempotent; safe to re-run.
 # ---------------------------------------------------------------------------
-models: ## Download ASR + VAD + diarization + punctuation models into ./models
+models: ## Download ASR + VAD + punctuation models into ./models
 	$(PY) scripts/download_models.py --dest models
 
 models-verify: ## Re-check sha256s in models/MANIFEST.json without downloading

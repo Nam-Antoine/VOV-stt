@@ -10,7 +10,8 @@ rebuildable projection of it. That direction matters:
   re-run never silently re-points someone's work at different audio timings.
 
 Nothing here alters text. ``text_asr`` is the raw JSON's ``text`` byte for byte
-(CLAUDE.md rule 1).
+(CLAUDE.md rule 1). Raw JSON from before diarization was removed (schema 1) carries
+``speaker`` fields; they are ignored.
 """
 
 from __future__ import annotations
@@ -20,10 +21,9 @@ import uuid
 from pathlib import Path
 
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from .models import Episode, Speaker, Transcript, Utterance, Word
+from .models import Episode, Transcript, Utterance, Word
 
 log = logging.getLogger("loader")
 
@@ -41,13 +41,8 @@ def load_transcript(
     raw_json_path: Path,
     transcript_id: uuid.UUID | None = None,
     hotwords_sha256: str | None = None,
-    speakers_pending: bool = False,
 ) -> Transcript:
-    """Insert one transcript and its derived rows. Returns the new transcript.
-
-    ``speakers_pending`` marks the ASR-only transcript the worker publishes before
-    diarization finishes (see :func:`app.pipeline.run.preliminary_doc`).
-    """
+    """Insert one transcript and its derived rows. Returns the new transcript."""
     engine_block = doc.get("engine") or {}
     transcript = Transcript(
         id=transcript_id or uuid.uuid4(),
@@ -59,7 +54,6 @@ def load_transcript(
         or (engine_block.get("params") or {}).get("hotwords_sha256"),
         raw_json_path=str(raw_json_path),
         is_current=True,
-        speakers_pending=speakers_pending,
     )
 
     # Demote the previous current transcript before inserting the new one, so there is
@@ -84,7 +78,6 @@ def load_transcript(
                     "start_s": float(w["start"]),
                     "end_s": None if w.get("end") is None else float(w["end"]),
                     "conf": w.get("conf"),
-                    "speaker": int(w.get("speaker", -1)),
                 }
                 for w in words
             ],
@@ -99,7 +92,6 @@ def load_transcript(
                     "id": uuid.uuid4(),
                     "transcript_id": transcript.id,
                     "i": int(u["i"]),
-                    "speaker": int(u.get("speaker", -1)),
                     "start_s": float(u["start"]),
                     "end_s": float(u["end"]),
                     "text_asr": u.get("text", ""),  # frozen, verbatim
@@ -110,34 +102,9 @@ def load_transcript(
             ],
         )
 
-    # A speakers-pending preview only has cluster -1; registering it would leave a
-    # stale "unknown speaker" row behind once the final clusters arrive.
-    if not speakers_pending:
-        upsert_speakers(session, episode_id=episode.id,
-                        clusters={int(u.get("speaker", -1)) for u in utterances})
-
     log.info("loaded transcript %s: %d words, %d utterances",
              transcript.id, len(words), len(utterances))
     return transcript
-
-
-def upsert_speakers(session: Session, *, episode_id: uuid.UUID,
-                    clusters: set[int]) -> None:
-    """Ensure a ``speakers`` row exists per cluster, without clobbering labels.
-
-    A verifier may already have named cluster 0 "MC Thanh Huyền" from an earlier run.
-    ``ON CONFLICT DO NOTHING`` keeps that label; PLAN §0.3 is explicit that the label is
-    the human's, not the system's.
-    """
-    clusters = {c for c in clusters if c is not None}
-    if not clusters:
-        return
-    session.execute(
-        pg_insert(Speaker)
-        .values([{"episode_id": episode_id, "cluster": c, "label": None}
-                 for c in sorted(clusters)])
-        .on_conflict_do_nothing(index_elements=["episode_id", "cluster"])
-    )
 
 
 def current_transcript(session: Session, episode_id: uuid.UUID) -> Transcript | None:
@@ -162,18 +129,10 @@ def utterance_counts(session: Session, transcript_id: uuid.UUID) -> tuple[int, i
     return int(total), int(verified)
 
 
-def speaker_labels(session: Session, episode_id: uuid.UUID) -> dict[int, str]:
-    """``{cluster: label}`` for the clusters that have been named."""
-    rows = session.execute(
-        select(Speaker.cluster, Speaker.label).where(Speaker.episode_id == episode_id)
-    ).all()
-    return {int(c): label for c, label in rows if label}
-
-
 def overrides_for(session: Session, transcript_id: uuid.UUID) -> dict[int, dict]:
     """The verified layer, keyed by utterance index, for the export renderers."""
     rows = session.execute(
-        select(Utterance.i, Utterance.text_verified, Utterance.speaker,
+        select(Utterance.i, Utterance.text_verified,
                Utterance.flags, Utterance.verified_by, Utterance.verified_at)
         .where(Utterance.transcript_id == transcript_id)
         .order_by(Utterance.i)
@@ -181,10 +140,9 @@ def overrides_for(session: Session, transcript_id: uuid.UUID) -> dict[int, dict]
     return {
         int(i): {
             "text_verified": text_verified,
-            "speaker": int(speaker),
             "flags": list(flags or []),
             "verified_by": verified_by,
             "verified_at": verified_at.isoformat() if verified_at else None,
         }
-        for i, text_verified, speaker, flags, verified_by, verified_at in rows
+        for i, text_verified, flags, verified_by, verified_at in rows
     }

@@ -9,6 +9,9 @@ Two tiers, selected by ``tier``:
 
 ``"asr"``       the engine's own text (``utterances[].text``)
 ``"verified"``  ``text_verified`` where a human has supplied one, else the ASR text
+
+No export carries speaker information: there is no diarization, and paragraphs break on
+pauses (:data:`app.pipeline.merge.PASSAGE_GAP_S`).
 """
 
 from __future__ import annotations
@@ -30,16 +33,11 @@ def utterance_text(utterance: dict, tier: str = TIER_ASR) -> str:
     return utterance.get("text", "")
 
 
-def speaker_label(speakers: dict | None, cluster: int) -> str:
-    """Human label for a cluster, falling back to ``SPEAKER_00`` style.
+def paragraphs(utterances: list[dict]) -> list[list[dict]]:
+    """Consecutive utterances grouped into paragraphs at pauses longer than 1.5 s.
 
-    Labels are per-episode free text a verifier typed (PLAN §0.3) — never an identity
-    the system inferred.
+    A grouping only: no utterance text is read or changed.
     """
-    if speakers:
-        label = speakers.get(cluster) or speakers.get(str(cluster))
-        if label:
-            return label
-    if cluster is None or cluster < 0:
-        return "SPEAKER_UNKNOWN"
-    return f"SPEAKER_{cluster:02d}"
+    from ..pipeline.merge import passages
+
+    return [[utterances[k] for k in group] for group in passages(utterances)]

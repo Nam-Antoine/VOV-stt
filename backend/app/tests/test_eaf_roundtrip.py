@@ -1,6 +1,7 @@
 """ELAN export structure (PLAN §11 T3).
 
-Opens the generated EAF with ``xml.etree`` and asserts tier count = speaker count and
+Opens the generated EAF with ``xml.etree`` and asserts there is one ``transcript`` tier
+(no speaker tiers, even for an old raw JSON that still carries speaker clusters) and
 that every annotation references two real time slots. An EAF with a dangling slot ref
 opens in ELAN as an empty tier, which looks like data loss to a verifier.
 """
@@ -58,18 +59,11 @@ def test_document_declares_eaf_30(root):
     assert root.get("FORMAT") == "3.0"
 
 
-def test_tier_count_equals_speaker_count(root):
+def test_one_tier_whatever_the_speaker_clusters(root):
+    # doc_with() is an old-style document with three speaker clusters.
     tiers = root.findall("TIER")
-    assert len(tiers) == 3
-    assert {t.get("TIER_ID") for t in tiers} == {
-        "SPEAKER_00", "SPEAKER_01", "SPEAKER_02"
-    }
-
-
-def test_speaker_labels_become_tier_ids():
-    labels = {0: "MC Thanh Huyền", 1: "Di Li"}
-    root = ET.fromstring(eaf.render(doc_with(n_speakers=2), speakers=labels))
-    assert {t.get("TIER_ID") for t in root.findall("TIER")} == {"MC Thanh Huyền", "Di Li"}
+    assert [t.get("TIER_ID") for t in tiers] == ["transcript"]
+    assert all(t.get("PARTICIPANT") is None for t in tiers)
 
 
 def test_every_annotation_has_two_resolvable_time_slots(root):
@@ -123,4 +117,4 @@ def test_empty_document_still_parses():
     doc["utterances"], doc["words"] = [], []
     root = ET.fromstring(eaf.render(doc))
     assert root.find("TIME_ORDER") is not None
-    assert root.findall("TIER") == []
+    assert [len(t.findall("ANNOTATION")) for t in root.findall("TIER")] == [0]

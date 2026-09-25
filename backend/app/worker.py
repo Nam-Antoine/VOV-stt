@@ -32,7 +32,6 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.exc import ProgrammingError
 
-from . import roles as roles_mod
 from .config import settings
 from .db import session_scope
 
@@ -161,13 +160,7 @@ def claim_job(session) -> dict[str, Any] | None:  # noqa: ANN001
 def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
     """Run the pipeline for one episode and load the results into the DB.
 
-    Text first: with diarization on, the ASR words are published as a read-only
-    ``speakers_pending`` transcript (its own raw JSON, its own row) as soon as ASR
-    finishes, then diarization runs in this same process and the final transcript
-    replaces it as current. Without diarization there is nothing to wait for, so only
-    the final transcript is written.
-
-    Each raw JSON is written **once**, before any row is inserted: if the DB load fails
+    The raw JSON is written **once**, before any row is inserted: if the DB load fails
     the master record still exists on disk and can be replayed (PLAN §0.2). Existing
     verified utterances from an earlier transcript are neither migrated nor overwritten
     — a new run is a new transcript row, and the human layer stays attached to the run
@@ -225,58 +218,27 @@ def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
     if params.get("vad_threshold") is not None:
         vad_params = replace(vad_params, threshold=float(params["vad_threshold"]))
 
-    diar_params = None
-    if params.get("diarize", settings.diarize_by_default):
-        diar_params = settings.diar_params()
-        if params.get("diar_threshold") is not None:
-            diar_params = replace(diar_params, threshold=float(params["diar_threshold"]))
-    else:
-        log.info("diarization disabled for this job; every word gets speaker -1")
-
-    run_kwargs = {"asr_params": asr_params, "vad_params": vad_params,
-                  "source_url": episode.source_url, "episode_id": str(episode.id),
-                  "hotwords_sha256": hotwords_sha}
-
     log.info("transcribing %s", episode.slug)
-    stage = run_mod.run_asr(Path(episode.audio_path), work_dir=settings.audio_dir,
-                            asr_params=asr_params, vad_params=vad_params)
+    doc = run_mod.transcribe(
+        Path(episode.audio_path), work_dir=settings.audio_dir,
+        asr_params=asr_params, vad_params=vad_params,
+        source_url=episode.source_url, episode_id=str(episode.id),
+        hotwords_sha256=hotwords_sha,
+    )
+    transcript_id = _uuid.uuid4()
+    out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
+    run_mod.write_raw_json(doc, out_path)
 
-    preliminary_id = previous_id = None
-    if diar_params is not None:
-        # Text first: diarization is 70–80 % of the run, so publish the ASR words now
-        # as their own immutable raw JSON + transcript row, flagged speakers_pending.
-        # Same process, same job, strictly before diarization starts (CLAUDE.md
-        # rule 6). The final run below replaces it as current; this row stays as
-        # history and is never edited (PLAN §0.2).
-        previous = loader.current_transcript(session, episode.id)
-        previous_id = previous.id if previous else None
-        preliminary_id = publish_preliminary(session, episode=episode, stage=stage,
-                                             run_kwargs=run_kwargs, hotwords_sha=hotwords_sha)
-
-    try:
-        doc = run_mod.finish(stage, diar_params=diar_params, **run_kwargs)
-        transcript_id = _uuid.uuid4()
-        out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
-        run_mod.write_raw_json(doc, out_path)
-
-        loader.load_transcript(
-            session,
-            episode=episode,
-            doc=doc,
-            raw_json_path=out_path,
-            transcript_id=transcript_id,
-            hotwords_sha256=hotwords_sha,
-        )
-    except Exception:
-        if preliminary_id is not None:
-            session.rollback()
-            withdraw_preliminary(session, preliminary_id, previous_id)
-        raise
+    loader.load_transcript(
+        session,
+        episode=episode,
+        doc=doc,
+        raw_json_path=out_path,
+        transcript_id=transcript_id,
+        hotwords_sha256=hotwords_sha,
+    )
 
     readable_note = add_readable_layer(session, transcript_id)
-    roles = roles_mod.label_roles(session, episode.id)
-    if roles:
-        readable_note += f", roles {sorted(roles.values())}"
 
     audio_block = doc.get("audio") or {}
     if audio_block.get("duration_s"):
@@ -321,64 +283,6 @@ def add_readable_layer(session, transcript_id) -> str:  # noqa: ANN001
     return f", readable {n} utt in {time.monotonic() - t0:.1f}s"
 
 
-def withdraw_preliminary(session, preliminary_id, previous_id) -> None:  # noqa: ANN001
-    """Diarization failed after the ASR-only preview went live: undo the preview.
-
-    The preview is read-only (``speakers_pending``), so leaving it current would lock
-    the episode and hide the transcript it replaced, possibly with verified work in it.
-    With an earlier transcript, that one becomes current again. Without one (a first
-    run), the preview stays current but editable: the text is complete, it just has
-    no speaker labels.
-    """
-    from .models import Transcript
-
-    preliminary = session.get(Transcript, preliminary_id)
-    if preliminary is None:
-        return
-    if previous_id is not None:
-        preliminary.is_current = False
-        session.flush()  # never two current rows, even inside the transaction
-        session.get(Transcript, previous_id).is_current = True
-        log.warning("diarization failed: restored the previous transcript as current")
-    else:
-        preliminary.speakers_pending = False
-        log.warning("diarization failed: keeping the text without speaker labels")
-    session.commit()
-
-
-def publish_preliminary(session, *, episode, stage, run_kwargs: dict,  # noqa: ANN001
-                        hotwords_sha: str | None):
-    """Write and load the ASR-only transcript, then commit so the API can serve it.
-
-    Returns the new transcript's id. The rows are read-only (``speakers_pending``) because
-    their utterance boundaries ignore speaker changes and are about to be replaced.
-    """
-    import uuid as _uuid
-
-    from . import loader
-    from .pipeline import run as run_mod
-
-    doc = run_mod.preliminary_doc(stage, **run_kwargs)
-    transcript_id = _uuid.uuid4()
-    out_path = loader.raw_json_dest(settings.raw_dir, episode.slug, transcript_id)
-    run_mod.write_raw_json(doc, out_path)
-    loader.load_transcript(
-        session,
-        episode=episode,
-        doc=doc,
-        raw_json_path=out_path,
-        transcript_id=transcript_id,
-        hotwords_sha256=hotwords_sha,
-        speakers_pending=True,
-    )
-    if stage.info.duration_s:
-        episode.duration_s = float(stage.info.duration_s)
-    session.commit()
-    log.info("published %d words ahead of diarization -> %s",
-             len(doc.get("words") or []), out_path)
-    return transcript_id
-
-
 def handle_export(session, job: dict) -> str:  # noqa: ANN001
     """Regenerate every export for one episode into ``/data/exports``.
 
@@ -402,7 +306,6 @@ def handle_export(session, job: dict) -> str:  # noqa: ANN001
         doc,
         settings.exports_dir / episode.slug,
         episode.slug,
-        speakers=loader.speaker_labels(session, episode.id),
         overrides=loader.overrides_for(session, transcript.id),
     )
     return f"{len(written)} exports -> {settings.exports_dir / episode.slug}"

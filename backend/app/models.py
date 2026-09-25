@@ -4,7 +4,7 @@ Two layers, deliberately separated (PLAN §0.2):
 
 ``transcripts`` / ``words``
     Derived from the immutable raw JSON. Rebuildable — drop and regenerate at will.
-``utterances`` / ``utterance_edits`` / ``speakers``
+``utterances`` / ``utterance_edits``
     The human layer. ``text_asr`` is a frozen copy of the engine's output;
     ``text_verified`` is the verifier's text and is ``NULL`` until someone touches it.
     Every edit is appended to ``utterance_edits``; nothing is overwritten silently.
@@ -79,9 +79,6 @@ class Episode(Base):
     jobs: Mapped[list[Job]] = relationship(
         back_populates="episode", cascade="all, delete-orphan"
     )
-    speakers: Mapped[list[Speaker]] = relationship(
-        back_populates="episode", cascade="all, delete-orphan"
-    )
 
 
 class Job(Base):
@@ -136,12 +133,6 @@ class Transcript(Base):
     hotwords_sha256: Mapped[str | None] = mapped_column(Text)
     raw_json_path: Mapped[str] = mapped_column(Text, nullable=False)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    #: ASR text published before diarization finished: every speaker is -1 and the
-    #: utterance boundaries will change, so the rows are read-only until the final
-    #: transcript (a new row, a new raw JSON) replaces this one.
-    speakers_pending: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false")
-    )
     #: Filled by the pilot only (PLAN §8).
     wer_vs_reference: Mapped[float | None] = mapped_column(Numeric)
     created_at: Mapped[datetime] = mapped_column(
@@ -181,7 +172,6 @@ class Word(Base):
     start_s: Mapped[float] = mapped_column(Numeric, nullable=False)
     end_s: Mapped[float | None] = mapped_column(Numeric)
     conf: Mapped[float | None] = mapped_column(Numeric)
-    speaker: Mapped[int] = mapped_column(Integer, nullable=False, default=-1)
 
     transcript: Mapped[Transcript] = relationship(back_populates="words")
 
@@ -201,7 +191,6 @@ class Utterance(Base):
         nullable=False,
     )
     i: Mapped[int] = mapped_column(Integer, nullable=False)
-    speaker: Mapped[int] = mapped_column(Integer, nullable=False, default=-1)
     start_s: Mapped[float] = mapped_column(Numeric, nullable=False)
     end_s: Mapped[float] = mapped_column(Numeric, nullable=False)
     #: Frozen copy from the raw JSON. Never updated.
@@ -244,25 +233,6 @@ class UtteranceEdit(Base):
     )
 
     utterance: Mapped[Utterance] = relationship(back_populates="edits")
-
-
-class Speaker(Base):
-    """Per-episode cluster → free-text label.
-
-    PLAN §0.3: this is *not* speaker identification. The label is whatever the verifier
-    typed for this episode's cluster; it carries no identity across episodes.
-    """
-
-    __tablename__ = "speakers"
-
-    episode_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("episodes.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    cluster: Mapped[int] = mapped_column(Integer, primary_key=True)
-    label: Mapped[str | None] = mapped_column(Text)
-
-    episode: Mapped[Episode] = relationship(back_populates="speakers")
 
 
 class Hotword(Base):

@@ -1,18 +1,8 @@
 """Word (.docx) export, laid out like the client's hand-verified reference.
 
-The reference document (``resource/docs/TÂM SỰ CHIẾN THUẬT QUẢN TRỊ CHỒNG.docx``) is
-organised as:
-
-    <speaker label>:          ← its own paragraph, bold
-    <utterance>               ← one paragraph per utterance
-    <utterance>
-    <next speaker>:
-    ...
-
-so that is what this renders. Consecutive utterances from the same speaker sit under one
-heading, which is what makes the document readable — and is purely a *grouping* of
-paragraphs, not an edit: no utterance text is joined, split, re-cased or punctuated
-(PLAN §0.1, CLAUDE.md rule 1).
+A title, then one paragraph per utterance, as in the reference minus its speaker
+headings (the transcript has no speakers). The text goes in unchanged: no utterance is
+joined, split, re-cased or punctuated (PLAN §0.1, CLAUDE.md rule 1).
 
 Written as raw OOXML into a zip by hand. python-docx would be a new runtime dependency
 for one file format, and the subset of WordprocessingML a transcript needs is small and
@@ -27,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from . import TIER_ASR, speaker_label, utterance_text
+from . import TIER_ASR, utterance_text
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -67,11 +57,6 @@ _STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:name w:val="Normal"/>
     <w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>
   </w:style>
-  <w:style w:type="paragraph" w:styleId="Speaker">
-    <w:name w:val="Speaker"/><w:basedOn w:val="Normal"/>
-    <w:pPr><w:spacing w:before="240" w:after="60"/><w:keepNext/></w:pPr>
-    <w:rPr><w:b/></w:rPr>
-  </w:style>
   <w:style w:type="paragraph" w:styleId="DocTitle">
     <w:name w:val="DocTitle"/><w:basedOn w:val="Normal"/>
     <w:pPr><w:spacing w:after="240"/></w:pPr>
@@ -90,19 +75,13 @@ def _para(text: str, style: str | None = None) -> str:
 
 
 def build_document_xml(doc: dict, *, tier: str = TIER_ASR,
-                       speakers: dict | None = None,
                        title: str | None = None) -> str:
-    """The ``word/document.xml`` body: a title, then speaker-grouped utterances."""
+    """The ``word/document.xml`` body: a title, then one paragraph per utterance."""
     parts: list[str] = []
     if title:
         parts.append(_para(title, "DocTitle"))
 
-    last_label: str | None = None
     for u in doc.get("utterances", []):
-        label = speaker_label(speakers, u.get("speaker"))
-        if label != last_label:
-            parts.append(_para(f"{label}:", "Speaker"))
-            last_label = label
         # Verbatim: the utterance goes in as one run, unchanged.
         parts.append(_para(utterance_text(u, tier)))
 
@@ -133,11 +112,10 @@ def _core_xml(title: str) -> str:
     )
 
 
-def render_bytes(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None,
-                 title: str | None = None) -> bytes:
+def render_bytes(doc: dict, *, tier: str = TIER_ASR, title: str | None = None) -> bytes:
     """The whole .docx as bytes."""
     name = title or (doc.get("source") or {}).get("filename") or "transcript"
-    document_xml = build_document_xml(doc, tier=tier, speakers=speakers, title=name)
+    document_xml = build_document_xml(doc, tier=tier, title=name)
 
     import io
 
@@ -158,6 +136,5 @@ def render_bytes(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = Non
     return buf.getvalue()
 
 
-def write(doc: dict, path, *, tier: str = TIER_ASR, speakers: dict | None = None,
-          title: str | None = None) -> None:
-    Path(path).write_bytes(render_bytes(doc, tier=tier, speakers=speakers, title=title))
+def write(doc: dict, path, *, tier: str = TIER_ASR, title: str | None = None) -> None:
+    Path(path).write_bytes(render_bytes(doc, tier=tier, title=title))

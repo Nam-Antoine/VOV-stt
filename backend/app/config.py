@@ -61,22 +61,6 @@ class Settings(BaseSettings):
     vad_max_segment_s: float = 25.0
     vad_min_speech_ratio: float = 0.70
 
-    # --- diarization (PLAN §3) ---------------------------------------------
-    diar_segmentation_model: Path = Path(
-        "/data/models/diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx"
-    )
-    diar_embedding_model: Path = Path(
-        "/data/models/diarization/speaker-embedding/"
-        "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
-    )
-    diar_threshold: float = 0.8
-    diar_num_clusters: int = 0
-    diar_min_duration_on: float = 0.3
-    diar_min_duration_off: float = 0.5
-    #: pyannote window step (fraction of 10 s). 0.2 halves diarization time; see DiarParams.
-    diar_window_shift_ratio: float = 0.2
-    diar_num_threads: int = 2
-
     # --- readable layer: punctuation + capitalisation (derived, never the corpus) ---
     #: ViBERT-capu ONNX (CC BY-SA 4.0). Missing model = readable layer off, nothing else.
     punct_model_dir: Path = Path("/data/models/punctuation/vibert-capu")
@@ -91,10 +75,6 @@ class Settings(BaseSettings):
     # --- worker ------------------------------------------------------------
     worker_poll_interval_s: float = 2.0
     worker_max_attempts: int = 3
-    #: Diarization is the slow stage (~3-5x realtime vs ASR's ~7x) and it is what makes
-    #: the box hot. On by default because the deliverable is speaker-labelled text, but
-    #: a job can turn it off per run, and a loaded host can turn it off globally.
-    diarize_by_default: bool = True
     #: Niceness applied to the worker process. The API and the reverse proxy must stay
     #: responsive while an episode transcribes; the worker has no latency requirement.
     worker_nice: int = 10
@@ -139,20 +119,6 @@ class Settings(BaseSettings):
             min_speech_ratio=self.vad_min_speech_ratio,
         )
 
-    def diar_params(self):
-        from .pipeline.diarize import DiarParams
-
-        return DiarParams(
-            segmentation_model=str(self.diar_segmentation_model),
-            embedding_model=str(self.diar_embedding_model),
-            threshold=self.diar_threshold,
-            num_clusters=self.diar_num_clusters,
-            min_duration_on=self.diar_min_duration_on,
-            min_duration_off=self.diar_min_duration_off,
-            window_shift_ratio=self.diar_window_shift_ratio,
-            num_threads=self.diar_num_threads,
-        )
-
     def punct_params(self):
         from .pipeline.punctuate import ModelSpec, PunctParams
 
@@ -173,8 +139,6 @@ class Settings(BaseSettings):
             "asr_encoder": any(self.asr_model_dir.glob("encoder-*.onnx")),
             "asr_bpe": (self.asr_model_dir / "bpe.model").exists(),
             "vad": self.vad_model.exists(),
-            "diar_segmentation": self.diar_segmentation_model.exists(),
-            "diar_embedding": self.diar_embedding_model.exists(),
             "punctuation": self.punct_available(),
         }
 

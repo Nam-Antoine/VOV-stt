@@ -1,24 +1,22 @@
-"""Plain-text export: one utterance per line, ``SPEAKER<TAB>text`` (PLAN §1.5).
+"""Plain-text export: one utterance per line, the text only (PLAN §1.5).
 
-The same shape as ``pilot/reference.txt``, so a transcript and the hand-verified
-reference can be diffed directly.
+No speaker column, no timestamps: line ``n`` is utterance ``n`` of the transcript, so two
+exports of the same run diff line by line.
 """
 
 from __future__ import annotations
 
-from . import TIER_ASR, speaker_label, utterance_text
+from . import TIER_ASR, utterance_text
 
 
-def render(doc: dict, *, tier: str = TIER_ASR, speakers: dict | None = None) -> str:
+def render(doc: dict, *, tier: str = TIER_ASR) -> str:
     """Return the whole episode as text. No wrapping, no punctuation, no casing."""
-    lines = []
-    for u in doc.get("utterances", []):
-        lines.append(f"{speaker_label(speakers, u.get('speaker'))}\t{utterance_text(u, tier)}")
+    lines = [utterance_text(u, tier) for u in doc.get("utterances", [])]
     return "\n".join(lines) + ("\n" if lines else "")
 
 
-def write(doc: dict, path, *, tier: str = TIER_ASR, speakers: dict | None = None) -> None:
+def write(doc: dict, path, *, tier: str = TIER_ASR) -> None:
     """Write UTF-8 (CLAUDE.md rule 3)."""
     from pathlib import Path
 
-    Path(path).write_text(render(doc, tier=tier, speakers=speakers), encoding="utf-8")
+    Path(path).write_text(render(doc, tier=tier), encoding="utf-8")

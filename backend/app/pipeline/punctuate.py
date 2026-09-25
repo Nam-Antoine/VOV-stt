@@ -26,9 +26,10 @@ stop in one pass lets the next pass capitalise the word after it). Each pass run
 the *whole* turn and every word takes its result from the chunk where it sits furthest
 from an edge, so chunk boundaries never disagree about a sentence end.
 
-Context is a *turn* (consecutive utterances of one speaker), not an utterance: VAD
-splits mid-sentence, and the model needs the words on both sides to place a full stop.
-The punctuated turn is then cut back into utterances by word count.
+Context is a *passage* (consecutive utterances with no long pause, see
+:func:`app.pipeline.merge.passages`), not an utterance: VAD splits mid-sentence, and the
+model needs the words on both sides to place a full stop. The punctuated passage is then
+cut back into utterances by word count.
 """
 
 from __future__ import annotations
@@ -317,19 +318,8 @@ def same_words(src: list[str], out: list[str]) -> bool:
     )
 
 
-def turns(utterances: list[dict]) -> list[list[int]]:
-    """Indices of consecutive same-speaker utterances."""
-    groups: list[list[int]] = []
-    for k, u in enumerate(utterances):
-        if groups and utterances[groups[-1][-1]]["speaker"] == u["speaker"]:
-            groups[-1].append(k)
-        else:
-            groups.append([k])
-    return groups
-
-
 def readable_turn(punctuator: Punctuator, texts: list[str]) -> list[str]:
-    """Punctuate one speaker turn given its utterance texts; one string per utterance.
+    """Punctuate one passage given its utterance texts; one string per utterance.
 
     Whitespace inside an utterance is kept exactly where there is no mark to add, since
     only the words' own characters change.
@@ -349,7 +339,7 @@ def readable_turn(punctuator: Punctuator, texts: list[str]) -> list[str]:
             seg = [_keep_typed_case(w, r) for w, r in zip(ws, seg, strict=True)]
         out.append(_rejoin(text, ws, seg))
         k += len(ws)
-    # Capitalise the first word of a turn: it is the start of a sentence by definition.
+    # Capitalise the first word of a passage: it starts a sentence.
     for idx, t in enumerate(out):
         if t.strip():
             lead = len(t) - len(t.lstrip())

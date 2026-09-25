@@ -1,21 +1,20 @@
-"""Readable exports: punctuated, cased text laid out like the client's reference.
-
-Reference: ``resource/docs/TÂM SỰ CHIẾN THUẬT QUẢN TRỊ CHỒNG.docx`` —
+"""Readable exports: punctuated, cased text for people to read.
 
     <TITLE>
-    <speaker label>:            ← bold, own paragraph
-    <one sentence per paragraph>
-    <one sentence per paragraph>
-                                ← blank line between turns
-    <next speaker>:
-    ...
+    <paragraph>                 ← whole sentences, ~80 words or more
+    <paragraph>
+
+A paragraph never spans a pause longer than 1.5 s (:func:`app.pipeline.merge.passages`),
+and ends at the first sentence end once it holds :data:`PARAGRAPH_WORDS` words. Radio
+talk seldom pauses that long, so pauses alone would give a few pages-long paragraphs.
+There are no speaker headings: the transcript has no speaker information.
 
 These are **not** corpus exports. The text comes from the derived readable layer
 (``utterances.text_readable``, see ``app/readable.py``), which adds punctuation and
 capitals only; the verbatim corpus stays in ``json`` / ``verified.json`` / ``txt`` /
 ``csv`` / ``srt`` / ``eaf`` / ``docx``, which are unchanged (CLAUDE.md rule 1).
 
-Input is a list of ``{"speaker": int, "text": str}`` in playback order.
+Input is a list of ``{"start": s, "end": s, "text": str}`` in playback order.
 """
 
 from __future__ import annotations
@@ -25,58 +24,44 @@ import zipfile
 
 from ..pipeline.punctuate import sentences
 from . import docx as _docx
-from . import speaker_label
+from . import paragraphs
+
+#: A paragraph ends at the first sentence end after this many words.
+PARAGRAPH_WORDS = 80
 
 
-def reader_label(speakers: dict | None, cluster: int | None) -> str:
-    """The heading readers see: the typed label, else "Người nói 03" as on the web page.
-
-    Corpus exports keep the tool-friendly ``SPEAKER_03``; these documents are for people.
-    """
-    label = speaker_label(speakers, cluster)
-    if not label.startswith("SPEAKER_"):
-        return label
-    if cluster is None or cluster < 0:
-        return "Người nói không rõ"
-    return f"Người nói {cluster:02d}"
-
-
-def blocks(items: list[dict], speakers: dict | None) -> list[tuple[str, list[str]]]:
-    """``[(speaker label, [sentence, ...]), ...]`` with consecutive speakers merged."""
-    out: list[tuple[str, list[str]]] = []
-    for it in items:
-        text = (it.get("text") or "").strip()
-        if not text:
-            continue
-        label = reader_label(speakers, it.get("speaker"))
-        if out and out[-1][0] == label:
-            # Sentences can run across utterance boundaries: re-split the joined turn.
-            out[-1] = (label, sentences(" ".join(out[-1][1] + [text])))
-        else:
-            out.append((label, sentences(text)))
+def blocks(items: list[dict]) -> list[str]:
+    """Paragraph texts: sentences of one passage, cut after ~PARAGRAPH_WORDS words."""
+    out: list[str] = []
+    for group in paragraphs(items):
+        text = " ".join(t for t in ((it.get("text") or "").strip() for it in group) if t)
+        cur: list[str] = []
+        n = 0
+        for sentence in sentences(text):
+            cur.append(sentence)
+            n += len(sentence.split())
+            if n >= PARAGRAPH_WORDS:
+                out.append(" ".join(cur))
+                cur, n = [], 0
+        if cur:
+            out.append(" ".join(cur))
     return out
 
 
-def render_txt(items: list[dict], *, speakers: dict | None = None,
-               title: str | None = None) -> str:
+def render_txt(items: list[dict], *, title: str | None = None) -> str:
     lines: list[str] = []
     if title:
         lines += [title, ""]
-    for label, sents in blocks(items, speakers):
-        lines.append(f"{label}:")
-        lines.extend(sents)
-        lines.append("")
+    for text in blocks(items):
+        lines += [text, ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def build_document_xml(items: list[dict], *, speakers: dict | None = None,
-                       title: str | None = None) -> str:
+def build_document_xml(items: list[dict], *, title: str | None = None) -> str:
     parts: list[str] = []
     if title:
         parts.append(_docx._para(title, "DocTitle"))
-    for label, sents in blocks(items, speakers):
-        parts.append(_docx._para(f"{label}:", "Speaker"))
-        parts.extend(_docx._para(s) for s in sents)
+    parts.extend(_docx._para(text) for text in blocks(items))
     body = "".join(parts) or _docx._para("")
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -87,10 +72,9 @@ def build_document_xml(items: list[dict], *, speakers: dict | None = None,
     )
 
 
-def render_docx(items: list[dict], *, speakers: dict | None = None,
-                title: str | None = None) -> bytes:
+def render_docx(items: list[dict], *, title: str | None = None) -> bytes:
     name = title or "transcript"
-    document_xml = build_document_xml(items, speakers=speakers, title=name)
+    document_xml = build_document_xml(items, title=name)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for path, data in (
@@ -112,10 +96,9 @@ def render_docx(items: list[dict], *, speakers: dict | None = None,
 PDF_FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 
-def render_pdf(items: list[dict], *, speakers: dict | None = None,
-               title: str | None = None) -> bytes:
-    """Same layout as ``render_docx``: title, bold ``speaker:`` heading, one sentence
-    per line, A4 with 2 cm margins."""
+def render_pdf(items: list[dict], *, title: str | None = None) -> bytes:
+    """Same layout as ``render_docx``: title, then one paragraph per passage, A4 with
+    2 cm margins."""
     from fpdf import FPDF
 
     name = title or "transcript"
@@ -131,15 +114,8 @@ def render_pdf(items: list[dict], *, speakers: dict | None = None,
     pdf.set_font("Serif", "B", 16)
     pdf.multi_cell(width, 8, name, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
-    for label, sents in blocks(items, speakers):
+    pdf.set_font("Serif", "", 12)
+    for text in blocks(items):
+        pdf.multi_cell(width, 6.5, text, align="L", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
-        # Keep a heading with its first sentence rather than stranding it at a page foot.
-        if pdf.will_page_break(14):
-            pdf.add_page()
-        pdf.set_font("Serif", "B", 12)
-        pdf.multi_cell(width, 6.5, f"{label}:", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Serif", "", 12)
-        for s in sents:
-            pdf.multi_cell(width, 6.5, s, align="L", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(1.5)
     return bytes(pdf.output())

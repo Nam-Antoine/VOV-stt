@@ -32,7 +32,7 @@ rules any contributor (human or model) has to work under.
 ## What works end to end
 
 Upload audio in the browser → it is hashed and stored → a queued job transcribes it on
-one worker → the transcript appears with speaker chips, click-a-word-to-play, and inline
+one worker → the transcript appears with click-a-word-to-play and inline
 editing → export as `.docx`, `.txt`, `.csv`, `.srt`, `.eaf`, raw or verified JSON.
 
 Measured on a real 14-minute VOV episode (846 s), 4 vCPU shared box:
@@ -40,9 +40,8 @@ Measured on a real 14-minute VOV episode (846 s), 4 vCPU shared box:
 | | |
 |---|---|
 | words / utterances | 3426 / 31 |
-| speaker clusters | 11 |
 | VAD coverage | 98 % of duration |
-| total | **5.1× realtime** (ASR alone ~26×; diarization is the slow stage) |
+| total | **5.1× realtime** with diarization, measured before it was removed (ASR alone ~26×) |
 | peak RSS | **861 MB** (T1 budget: 2 GB) |
 
 ## CPU budget — deviation from CLAUDE.md rule 6
@@ -54,16 +53,21 @@ one and was sitting at load ~11 on 4 vCPU, so on the owner's instruction (22 Sep
 | Knob | Rule 6 | Here | Where |
 |---|---|---|---|
 | ASR threads | 3 | **2** | `ASR_NUM_THREADS` |
-| Diarization threads | 3 | **2** | `DIAR_NUM_THREADS` |
 | `OMP_NUM_THREADS` | 3 | **2** | `docker-compose.yml` |
 | worker CPU cap | — | **2.5** | `docker-compose.yml` |
 | worker `nice` | — | **10** | `WORKER_NICE` |
-| diarization | always | **per-job toggle** | `DIARIZE_BY_DEFAULT` |
 
 Still one worker process and no parallel episodes — that half of rule 6 is untouched.
-Diarization is the expensive stage; turning it off roughly halves CPU time per episode
-at the cost of speaker labels. Restore the rule-6 values by setting the three thread
-counts back to 3 and dropping the `cpus` cap.
+Restore the rule-6 values by setting the thread counts back to 3 and dropping the
+`cpus` cap.
+
+## No speaker information
+
+Diarization was removed on 25 Sep 2026: transcripts, the editor and every export carry
+no speaker labels, clusters or tiers. Utterances split on pauses over 0.5 s. The verbatim
+`.docx` has one paragraph per utterance; the punctuated reading copies break paragraphs at
+sentence ends every ~80 words, and always at a pause over 1.5 s. Raw JSON written before then (schema 1)
+still holds the old clusters on disk, and no export shows them.
 
 ## Quick start
 
@@ -93,8 +97,8 @@ word-level `.csv`, `.srt` — plus `exports/corpus.zip` for the whole corpus
 (`?tier=verified|all`).
 
 `.docx` is **not** in PLAN §1.5. It was added because the client's reference deliverable
-(`resource/docs/*.docx`) is a Word document: speaker heading, then one paragraph per
-utterance. It is a *layout* only — the text inside is the same bytes every other export
+(`resource/docs/*.docx`) is a Word document: one paragraph per utterance, without
+the reference's speaker headings. It is a *layout* only — the text inside is the same bytes every other export
 carries, and `test_no_normalisation.py` holds it to that like the rest.
 
 Every export is regenerated from the raw JSON plus the verified layer. Nothing is cached

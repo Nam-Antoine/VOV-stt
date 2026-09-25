@@ -102,17 +102,19 @@ def test_sentences_split_at_full_stops_and_questions():
 
 # --- staleness ---------------------------------------------------------------
 
-def utt(i, speaker, text_asr, *, verified=None, readable=None, source=None):
-    return SimpleNamespace(i=i, speaker=speaker, start_s=float(i), text_asr=text_asr,
+def utt(i, start, text_asr, *, verified=None, readable=None, source=None):
+    return SimpleNamespace(i=i, start_s=float(start), end_s=float(start) + 1.0,
+                           text_asr=text_asr,
                            text_verified=verified, text_readable=readable,
                            readable_from=source)
 
 
-def test_refresh_recomputes_only_stale_turns(monkeypatch):
+def test_refresh_recomputes_only_stale_passages(monkeypatch):
     rows = [
-        utt(0, 0, "xin chào", readable="Xin chào.", source="xin chào"),
-        utt(1, 1, "vâng ạ", verified="vâng ạ ạ", readable="Vâng ạ.", source="vâng ạ"),
-        utt(2, 1, "thế thì"),
+        utt(0, 0.0, "xin chào", readable="Xin chào.", source="xin chào"),
+        # 3 s of silence after utterance 0: a new passage.
+        utt(1, 4.0, "vâng ạ", verified="vâng ạ ạ", readable="Vâng ạ.", source="vâng ạ"),
+        utt(2, 5.2, "thế thì"),
     ]
     monkeypatch.setattr(readable_mod, "ordered_utterances", lambda s, t: rows)
     session = SimpleNamespace(flush=lambda: None)
@@ -120,7 +122,7 @@ def test_refresh_recomputes_only_stale_turns(monkeypatch):
 
     written = readable_mod.refresh(session, "t", p)
 
-    assert written == 2                       # the edited turn (1, 2); turn 0 untouched
+    assert written == 2                       # the edited passage (1, 2); 0 untouched
     assert rows[0].text_readable == "Xin chào."
     assert rows[1].readable_from == "vâng ạ ạ"   # computed from the human's text
     assert rows[1].text_verified == "vâng ạ ạ"   # corpus layer untouched
@@ -132,38 +134,34 @@ def test_refresh_recomputes_only_stale_turns(monkeypatch):
 # --- exports -------------------------------------------------------------------
 
 ITEMS = [
-    {"speaker": 0, "text": "Kính chào quý vị. Hôm nay"},
-    {"speaker": 0, "text": "chúng ta nói về tuổi ba mươi."},
-    {"speaker": 1, "text": "Xin chào. Vâng?"},
+    {"start": 0.0, "end": 2.0, "text": "Kính chào quý vị. Hôm nay"},
+    {"start": 2.4, "end": 5.0, "text": "chúng ta nói về tuổi ba mươi."},
+    # 2 s of silence: a new paragraph.
+    {"start": 7.0, "end": 8.0, "text": "Xin chào. Vâng?"},
 ]
 
 
-def test_readable_txt_matches_the_reference_layout():
-    out = readable_export.render_txt(ITEMS, speakers={0: "MC Ngọc Hà"}, title="ĐÀN BÀ 30+")
+def test_readable_txt_has_one_paragraph_per_passage_and_no_labels():
+    out = readable_export.render_txt(ITEMS, title="ĐÀN BÀ 30+")
     assert out == (
         "ĐÀN BÀ 30+\n\n"
-        "MC Ngọc Hà:\n"
-        "Kính chào quý vị.\n"
-        "Hôm nay chúng ta nói về tuổi ba mươi.\n\n"
-        "Người nói 01:\n"
-        "Xin chào.\n"
-        "Vâng?\n"
+        "Kính chào quý vị. Hôm nay chúng ta nói về tuổi ba mươi.\n\n"
+        "Xin chào. Vâng?\n"
     )
 
 
-def test_readable_docx_has_one_paragraph_per_sentence():
-    data = readable_export.render_docx(ITEMS, speakers={}, title="T")
+def test_readable_docx_has_one_paragraph_per_passage():
+    data = readable_export.render_docx(ITEMS, title="T")
     xml = zipfile.ZipFile(io.BytesIO(data)).read("word/document.xml").decode("utf-8")
-    assert xml.count("<w:p>") == 7  # title + 2 speaker headings + 4 sentences
-    assert "Hôm nay chúng ta nói về tuổi ba mươi." in xml
+    assert xml.count("<w:p>") == 3  # title + 2 passages
+    assert "Kính chào quý vị. Hôm nay chúng ta nói về tuổi ba mươi." in xml
     assert "\\u1e" not in xml
 
 
 def test_corpus_txt_export_ignores_the_readable_layer():
-    doc = {"utterances": [{"i": 0, "speaker": 0, "start": 0.0, "end": 1.0,
+    doc = {"utterances": [{"i": 0, "start": 0.0, "end": 1.0,
                             "text": MESSY, "text_readable": "À, à. Ừ thì là…"}]}
-    line = txt.render(doc).rstrip("\n")
-    assert line.split("\t", 1)[1] == MESSY
+    assert txt.render(doc) == MESSY + "\n"
 
 
 @pytest.mark.parametrize("fmt", ["readable.txt", "readable.docx", "readable.pdf"])
@@ -232,7 +230,7 @@ def test_readable_pdf_renders_vietnamese():
     if not os.path.exists(f"{readable_export.PDF_FONT_DIR}/DejaVuSerif.ttf"):
         pytest.skip("DejaVu fonts not installed")
     pytest.importorskip("fpdf")
-    out = readable_export.render_pdf(ITEMS, speakers={0: "MC Ngọc Hà"}, title="ĐÀN BÀ 30+")
+    out = readable_export.render_pdf(ITEMS, title="ĐÀN BÀ 30+")
     assert out.startswith(b"%PDF-") and out.rstrip().endswith(b"%%EOF")
     assert b"DejaVuSerif" in out  # the Vietnamese-capable font is embedded
 
@@ -275,3 +273,26 @@ def test_download_is_named_after_the_episode_title():
     assert 'filename="20211102-f29599.docx"' in header
     assert unquote(header.split("UTF-8''")[1]) == "Phụ nữ khí chất.docx"
     assert file_stem(SimpleNamespace(title="", slug="ep1")) == "ep1"
+
+
+def test_long_passage_is_cut_at_a_sentence_end_after_80_words():
+    sentence = " ".join(["một"] * 29) + " hai."   # 30 words
+    items = [{"start": float(k), "end": float(k) + 0.9, "text": sentence} for k in range(4)]
+    paras = readable_export.blocks(items)
+    # 30 + 30 + 30 = 90 >= 80 closes the first paragraph; the fourth sentence is left.
+    assert [len(p.split()) for p in paras] == [90, 30]
+    assert all(p.endswith(".") for p in paras)
+    assert " ".join(paras) == " ".join(it["text"] for it in items)   # nothing lost
+
+
+def test_corpus_docx_has_one_paragraph_per_utterance_and_no_headings():
+    from app.exports import docx
+
+    doc = {"utterances": [
+        {"i": 0, "start": 0.0, "end": 1.0, "text": "à thì"},
+        {"i": 1, "start": 1.2, "end": 2.0, "text": "ừ ừ"},
+    ]}
+    xml = zipfile.ZipFile(io.BytesIO(docx.render_bytes(doc, title="T"))).read(
+        "word/document.xml").decode("utf-8")
+    assert xml.count("<w:p>") == 3 and "à thì" in xml and "ừ ừ" in xml
+    assert "Speaker" not in xml

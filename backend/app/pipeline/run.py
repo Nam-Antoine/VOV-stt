@@ -2,9 +2,9 @@
 
     python -m app.pipeline.run --audio x.mp3 --out x.json
 
-Stages: ffmpeg → Silero VAD → Zipformer ASR per segment → diarization over the whole
-file → merge → raw JSON. ASR runs sequentially on one process (PLAN §3); diarization
-runs after ASR, never alongside it.
+Stages: ffmpeg → Silero VAD → Zipformer ASR per segment → utterance grouping → raw
+JSON. ASR runs sequentially on one process (PLAN §3). There is no diarization: the
+transcript carries no speaker information.
 
 The JSON this writes is the **immutable master record** (PLAN §0.2). It is written once;
 a re-run produces a new file, never an edit of an existing one. ``--out`` refuses to
@@ -17,7 +17,6 @@ Prints a realtime factor and peak RSS at the end. PLAN §11 T1: the run must sta
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import logging
 import os
@@ -25,21 +24,20 @@ import resource
 import sys
 import time
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import asr as asr_mod
 from . import audio as audio_mod
-from . import diarize as diarize_mod
 from . import merge as merge_mod
 from .asr import AsrParams
-from .diarize import DiarParams
 from .vad import VadParams
 
 log = logging.getLogger("pipeline.run")
 
-SCHEMA_VERSION = 1
+#: 2: no diarization — no ``diarization`` block, no ``speaker`` on words or utterances.
+#: Version-1 files (with speakers) still load; the speaker fields are ignored.
+SCHEMA_VERSION = 2
 
 
 def peak_rss_mb() -> float:
@@ -60,35 +58,22 @@ class Stopwatch:
         self._t0 = now
         return self.stages[name]
 
-    def resume(self) -> None:
-        """Restart the clock without recording a stage (e.g. after an I/O pause)."""
-        self._t0 = time.perf_counter()
-
     @property
     def total_s(self) -> float:
         return sum(self.stages.values())
 
 
-@dataclass
-class AsrStage:
-    """Everything the ASR phase produced, held in memory until diarization finishes.
-
-    The worker publishes a speakers-pending transcript from this (:func:`preliminary_doc`)
-    and then hands the same object to :func:`finish`, so the final document is built
-    from exactly the words the preliminary one showed — ASR is never run twice.
-    """
-
-    info: audio_mod.AudioInfo
-    samples: object          # np.ndarray; kept untyped so tests need no numpy import
-    sample_rate: int
-    segments: list[tuple[float, float]]
-    words: list[dict]
-    watch: Stopwatch
-
-
-def run_asr(audio_path: Path, *, work_dir: Path, asr_params: AsrParams,
-            vad_params: VadParams) -> AsrStage:
-    """Stages audio → VAD → ASR. Seconds to a minute on a 14-minute episode."""
+def transcribe(
+    audio_path: Path,
+    *,
+    work_dir: Path,
+    asr_params: AsrParams,
+    vad_params: VadParams,
+    source_url: str | None = None,
+    episode_id: str | None = None,
+    hotwords_sha256: str | None = None,
+) -> dict:
+    """Run every stage and return the raw JSON document (PLAN §5 schema)."""
     watch = Stopwatch()
 
     log.info("audio: decoding %s to 16 kHz mono", audio_path)
@@ -113,16 +98,10 @@ def run_asr(audio_path: Path, *, work_dir: Path, asr_params: AsrParams,
     )
     watch.mark("asr")
     log.info("asr: %d words", len(words))
-    return AsrStage(info=info, samples=samples, sample_rate=sample_rate,
-                    segments=segments, words=words, watch=watch)
 
+    utterances = merge_mod.build_utterances(words, breaks=[s for s, _ in segments])
+    watch.mark("group")
 
-def _document(stage: AsrStage, words: list[dict], utterances: list[dict], *,
-              asr_params: AsrParams, vad_params: VadParams, diarization: dict | None,
-              source_url: str | None, episode_id: str | None,
-              hotwords_sha256: str | None) -> dict:
-    """The PLAN §5 raw JSON document, from a finished (or ASR-only) run."""
-    info, watch = stage.info, stage.watch
     return {
         "schema_version": SCHEMA_VERSION,
         "episode_id": episode_id or str(uuid.uuid4()),
@@ -130,15 +109,13 @@ def _document(stage: AsrStage, words: list[dict], utterances: list[dict], *,
         "audio": info.as_audio_block(),
         "engine": asr_mod.engine_block(asr_params, hotwords_sha256=hotwords_sha256),
         "vad": {**vad_params.as_json(),
-                "segments": [[round(s, 3), round(e, 3)] for s, e in stage.segments]},
-        "diarization": diarization,
+                "segments": [[round(s, 3), round(e, 3)] for s, e in segments]},
         "words": [
             {
                 "i": w["i"], "text": w["text"],
                 "start": round(float(w["start"]), 3),
                 "end": round(float(w["end"]), 3) if w.get("end") is not None else None,
                 "conf": w.get("conf"),
-                "speaker": w.get("speaker", merge_mod.UNKNOWN_SPEAKER),
             }
             for w in words
         ],
@@ -152,89 +129,6 @@ def _document(stage: AsrStage, words: list[dict], utterances: list[dict], *,
             "peak_rss_mb": round(peak_rss_mb(), 1),
         },
     }
-
-
-def preliminary_doc(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
-                    source_url: str | None = None, episode_id: str | None = None,
-                    hotwords_sha256: str | None = None) -> dict:
-    """An ASR-only document to show while diarization runs.
-
-    It is a complete raw JSON in its own right — same words, same text, every speaker
-    ``-1`` exactly as a ``--no-diarize`` run — plus ``"speakers_pending": true`` so
-    nothing downstream mistakes it for a finished run. Written to its own file: the
-    final run gets a new file and a new transcript row, never an edit of this one
-    (PLAN §0.2).
-
-    The words are copied: :func:`merge.merge` assigns speakers in place, and the final
-    document must be built from untouched ASR output.
-    """
-    words = copy.deepcopy(stage.words)
-    words, utterances = merge_mod.merge(words, [])
-    doc = _document(stage, words, utterances, asr_params=asr_params,
-                    vad_params=vad_params, diarization=None, source_url=source_url,
-                    episode_id=episode_id, hotwords_sha256=hotwords_sha256)
-    doc["speakers_pending"] = True
-    return doc
-
-
-def finish(stage: AsrStage, *, asr_params: AsrParams, vad_params: VadParams,
-           diar_params: DiarParams | None, source_url: str | None = None,
-           episode_id: str | None = None, hotwords_sha256: str | None = None) -> dict:
-    """Stages diarize → merge, and the final raw JSON document."""
-    watch = stage.watch
-    # Time spent publishing the preliminary transcript is not diarization time.
-    watch.resume()
-
-    diar_segments: list[dict] = []
-    diar_retry: dict | None = None
-    if diar_params is not None:
-        log.info("diarize: running (this is the slow stage)")
-
-        def diar_progress(done: int, total: int) -> None:
-            if total and (done == total or done % max(1, total // 10) == 0):
-                log.info("diarize: %d%%", int(100 * done / total))
-
-        diar_segments, diar_params, diar_retry = diarize_mod.diarize_adaptive(
-            stage.samples, stage.sample_rate, diar_params, progress=diar_progress
-        )
-    else:
-        log.warning("diarize: skipped (--no-diarize); every word gets speaker -1")
-    watch.mark("diarize")
-
-    # VAD segment edges are the pauses a speaker change should sit on.
-    pauses = sorted({t for seg in stage.segments for t in seg})
-    words, utterances = merge_mod.merge(stage.words, diar_segments, pauses=pauses)
-    watch.mark("merge")
-
-    return _document(
-        stage, words, utterances, asr_params=asr_params, vad_params=vad_params,
-        diarization=(
-            {**diar_params.as_json(), "snap_to_vad_s": merge_mod.DEFAULT_SNAP_S,
-             **({"retry": diar_retry} if diar_retry else {}),
-             "segments": diar_segments}
-            if diar_params is not None else None
-        ),
-        source_url=source_url, episode_id=episode_id, hotwords_sha256=hotwords_sha256,
-    )
-
-
-def transcribe(
-    audio_path: Path,
-    *,
-    work_dir: Path,
-    asr_params: AsrParams,
-    vad_params: VadParams,
-    diar_params: DiarParams | None,
-    source_url: str | None = None,
-    episode_id: str | None = None,
-    hotwords_sha256: str | None = None,
-) -> dict:
-    """Run every stage and return the raw JSON document (PLAN §5 schema)."""
-    stage = run_asr(audio_path, work_dir=work_dir, asr_params=asr_params,
-                    vad_params=vad_params)
-    return finish(stage, asr_params=asr_params, vad_params=vad_params,
-                  diar_params=diar_params, source_url=source_url,
-                  episode_id=episode_id, hotwords_sha256=hotwords_sha256)
 
 
 def vad_mod_segment(samples, sample_rate, vad_params):
@@ -267,7 +161,6 @@ def report(doc: dict, out: Path) -> str:
     t = doc["timing"]
     dur = doc["audio"]["duration_s"]
     speech_s = sum(e - s for s, e in doc["vad"]["segments"])
-    n_speakers = len({s["speaker"] for s in (doc["diarization"] or {}).get("segments", [])})
     lines = [
         "",
         "─" * 66,
@@ -276,7 +169,6 @@ def report(doc: dict, out: Path) -> str:
         f"{len(doc['vad']['segments'])} segments)",
         f"  words            {len(doc['words']):8d}",
         f"  utterances       {len(doc['utterances']):8d}",
-        f"  speaker clusters {n_speakers:8d}",
         "  " + "-" * 62,
     ]
     for name, secs in t["stages_s"].items():
@@ -329,14 +221,6 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--vad-pad", type=float, default=0.35)
     g.add_argument("--vad-max-segment", type=float, default=25.0)
 
-    g = ap.add_argument_group("diarization (PLAN §3)")
-    g.add_argument("--no-diarize", action="store_true",
-                   help="skip diarization; every word gets speaker -1")
-    g.add_argument("--diar-threshold", type=float,
-                   default=float(os.environ.get("DIAR_THRESHOLD", 0.7)))
-    g.add_argument("--diar-num-clusters", type=int, default=0,
-                   help="0 = auto (PLAN §5)")
-
     ap.add_argument("-v", "--verbose", action="store_true")
     return ap
 
@@ -385,31 +269,6 @@ def main(argv: list[str] | None = None) -> int:
         pad_s=args.vad_pad,
         max_segment_s=args.vad_max_segment,
     )
-    diar_params = None
-    if not args.no_diarize:
-        seg = os.environ.get("DIAR_SEGMENTATION_MODEL") or str(
-            models / "diarization" / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
-        )
-        emb = os.environ.get("DIAR_EMBEDDING_MODEL")
-        if not emb:
-            candidates = sorted((models / "diarization" / "speaker-embedding").glob("*.onnx"))
-            if not candidates:
-                print(
-                    "error: no speaker-embedding model found. Run "
-                    "`python scripts/download_models.py --dest models`, or pass "
-                    "--no-diarize.",
-                    file=sys.stderr,
-                )
-                return 1
-            emb = str(candidates[0])
-        diar_params = DiarParams(
-            segmentation_model=seg,
-            embedding_model=emb,
-            threshold=args.diar_threshold,
-            num_clusters=args.diar_num_clusters,
-            num_threads=args.threads,
-        )
-
     work_dir = args.work_dir or out.parent / "wav"
     try:
         doc = transcribe(
@@ -417,7 +276,6 @@ def main(argv: list[str] | None = None) -> int:
             work_dir=work_dir,
             asr_params=asr_params,
             vad_params=vad_params,
-            diar_params=diar_params,
             source_url=args.source_url,
             episode_id=args.episode_id,
             hotwords_sha256=hotwords_sha,

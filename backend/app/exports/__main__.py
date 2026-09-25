@@ -33,7 +33,6 @@ BINARY_RENDERERS = {
 
 
 def render_all(doc: dict, out_dir: Path, slug: str,
-               speakers: dict | None = None,
                overrides: dict | None = None,
                title: str | None = None) -> list[Path]:
     """Write every format for one document. Returns the paths written.
@@ -48,16 +47,16 @@ def render_all(doc: dict, out_dir: Path, slug: str,
     # Layer the overrides onto a copy once, so each renderer downstream sees one
     # consistent document instead of every renderer knowing about the override dict.
     verified_doc = (
-        json_verified.build(doc, overrides=overrides, speakers=speakers)
+        json_verified.build(doc, overrides=overrides)
         if overrides else doc
     )
 
     for ext, (render, tier) in RENDERERS.items():
         path = out_dir / f"{slug}.{ext}"
         if render is json_verified.render:
-            body = render(doc, overrides=overrides, speakers=speakers)
+            body = render(doc, overrides=overrides)
         else:
-            kwargs: dict = {"speakers": speakers} if speakers is not None else {}
+            kwargs: dict = {}
             if tier is not None:
                 kwargs["tier"] = tier
             body = render(verified_doc if tier == TIER_VERIFIED else doc, **kwargs)
@@ -68,7 +67,7 @@ def render_all(doc: dict, out_dir: Path, slug: str,
         source = verified_doc if tier == TIER_VERIFIED else doc
         path = out_dir / f"{slug}.{ext}"
         path.write_bytes(
-            render(source, tier=tier, speakers=speakers, title=title or slug)
+            render(source, tier=tier, title=title or slug)
         )
         written.append(path)
 
@@ -97,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # TODO(T3): load the episode, its current transcript's raw JSON, the utterances
-    # overrides and the speaker labels, then call render_all.
+    # overrides, then call render_all.
     print(
         "error: --episode needs the DB layer, which lands in T3 (PLAN §11). "
         "Use --raw-json to render from a raw JSON file today.",
