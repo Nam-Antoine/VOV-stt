@@ -57,12 +57,6 @@ SETTINGS_SEED: dict[str, dict] = {
         "pad_s": 0.35, "merge_gap_s": 0.3, "max_segment_s": 25.0,
         "_source": "PLAN §3 defaults",
     },
-    "diarization": {
-        "threshold": 0.7, "num_clusters": 0,
-        "min_duration_on": 0.3, "min_duration_off": 0.5,
-        "window_shift_ratio": 0.2,
-        "_source": "PLAN §3 defaults; window_shift_ratio benchmarked 2026-09-23",
-    },
 }
 
 
