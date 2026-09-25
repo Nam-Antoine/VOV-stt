@@ -1,7 +1,7 @@
 // PLAN §10: "the Episode screen is the product".
 //
 // Layout: waveform pinned under the app header; transcript below, one card per
-// utterance with a coloured speaker rule down its left edge.
+// utterance. No speaker labels.
 //
 // Keyboard (PLAN §10, plus F and ? added here):
 //   Space  play/pause     [ / ]  previous / next utterance
@@ -15,10 +15,9 @@ import { Link, useParams } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
-import ExportMenu, { SPEAKERS_PENDING } from '../components/ExportMenu'
+import ExportMenu from '../components/ExportMenu'
 import { ArrowLeft, Spinner } from '../components/Icons'
 import Shortcuts from '../components/Shortcuts'
-import SpeakerLegend from '../components/SpeakerLegend'
 import TranscriptEditor from '../components/TranscriptEditor'
 import WaveformPlayer, { type WaveformPlayerHandle } from '../components/WaveformPlayer'
 import { StatusChip } from './Episodes'
@@ -86,7 +85,7 @@ export default function Episode() {
   })
 
   // Fills in punctuation for utterances that have none yet or were just edited. Only
-  // changed speaker turns are recomputed server-side, so after an edit it is quick;
+  // changed passages are recomputed server-side, so after an edit it is quick;
   // an episode transcribed before this existed takes ~20 s once.
   const punctuate = useMutation({
     mutationFn: () => api.refreshReadable(transcriptId!),
@@ -99,7 +98,7 @@ export default function Episode() {
   const lastPunctuated = useRef('')
   useEffect(() => {
     const t = transcript.data
-    if (!readable || !t || !t.readable_available || t.speakers_pending) return
+    if (!readable || !t || !t.readable_available) return
     if (!staleSig || punctuate.isPending) return
     const sig = `${t.id}:${staleSig}`
     if (lastPunctuated.current === sig) return // tried this exact state already
@@ -112,17 +111,8 @@ export default function Episode() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] }),
   })
 
-  const rename = useMutation({
-    mutationFn: ({ cluster, label }: { cluster: number; label: string }) =>
-      api.setSpeakerLabel(id!, cluster, label),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] })
-      queryClient.invalidateQueries({ queryKey: ['episode', id] })
-    },
-  })
-
   const transcribe = useMutation({
-    mutationFn: () => api.transcribe(id!, { hotwords: true, diarize: true }),
+    mutationFn: () => api.transcribe(id!, { hotwords: true }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['episode', id] }),
   })
 
@@ -132,11 +122,6 @@ export default function Episode() {
   )
   const words = transcript.data?.words ?? []
 
-  const speakerLabels = useMemo(() => {
-    const map: Record<number, string> = {}
-    for (const s of transcript.data?.speakers ?? []) if (s.label) map[s.cluster] = s.label
-    return map
-  }, [transcript.data])
 
   const confThreshold = useMemo(
     () => (showConf ? confPercentile(words, percentile) : null),
@@ -208,8 +193,6 @@ export default function Episode() {
   }
 
   const ep = episode.data!
-  // Text-first preview: ASR text is in, diarization is still running (edits would 409).
-  const pending = ep.speakers_pending || transcript.data?.speakers_pending === true
   const verifiedCount = utterances.filter((u: Utterance) => u.text_verified !== null).length
   const pct = utterances.length ? (verifiedCount / utterances.length) * 100 : 0
 
@@ -227,7 +210,7 @@ export default function Episode() {
         </Link>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
           <h1 className="title min-w-0 break-words">{ep.title || ep.slug}</h1>
-          <StatusChip status={ep.status} speakersPending={pending} />
+          <StatusChip status={ep.status} />
           {utterances.length > 0 && (
             <span className="flex w-full items-center gap-3 text-sm text-muted sm:ml-auto sm:w-auto">
               <span className="tabular-nums">
@@ -281,21 +264,6 @@ export default function Episode() {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line pb-4">
-            {pending ? (
-              <p className="flex items-center gap-2 text-sm text-muted">
-                <span
-                  className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong"
-                  aria-hidden="true"
-                />
-                Đang xác định người nói…
-              </p>
-            ) : (
-              <SpeakerLegend
-                speakers={transcript.data?.speakers ?? []}
-                utterances={utterances}
-                onRename={(cluster, label) => rename.mutate({ cluster, label })}
-              />
-            )}
             <div className="ml-auto flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-1.5 text-sm text-muted">
                 <input
@@ -306,7 +274,7 @@ export default function Episode() {
                 />
                 Tự cuộn
               </label>
-              {transcript.data?.readable_available && !pending && (
+              {transcript.data?.readable_available && (
                 <label
                   className="flex items-center gap-1.5 text-sm text-muted"
                   title="Thêm dấu câu và viết hoa để dễ đọc. Chỉ là bản đọc — văn bản nguyên văn không đổi."
@@ -339,21 +307,11 @@ export default function Episode() {
               </button>
               <ExportMenu
                 episodeId={id}
-                disabled={pending || !transcript.data?.readable_available}
-                disabledReason={pending ? SPEAKERS_PENDING : 'Máy chủ chưa cài mô hình thêm dấu câu'}
+                disabled={!transcript.data?.readable_available}
+                disabledReason="Máy chủ chưa cài mô hình thêm dấu câu"
               />
             </div>
           </div>
-
-          {pending && (
-            <div className="rounded-xl border border-line bg-accent/20 px-4 py-3 text-sm">
-              <p className="font-medium text-ink">Đã có văn bản — đang xác định người nói.</p>
-              <p className="mt-0.5 text-muted">
-                Bạn có thể nghe và đọc ngay. Việc sửa sẽ mở khi phân tách người nói xong; trang
-                tự làm mới.
-              </p>
-            </div>
-          )}
 
           <p className="text-xs leading-relaxed text-faint">
             Nhấp vào một từ để phát từ vị trí đó. Văn bản được lưu đúng như khi gõ — không
@@ -370,7 +328,6 @@ export default function Episode() {
             <TranscriptEditor
               utterances={utterances}
               words={words}
-              speakerLabels={speakerLabels}
               onWordClick={(w) => seekTo(w.start_s)}
               onSave={(utteranceId, text) => saveUtterance.mutate({ utteranceId, text })}
               onRevert={(utteranceId) => revert.mutate(utteranceId)}
@@ -378,8 +335,7 @@ export default function Episode() {
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
               followPlayhead={follow}
-              readOnly={pending}
-              readable={readable && !pending}
+              readable={readable}
               savingId={
                 saveUtterance.isPending ? (saveUtterance.variables?.utteranceId ?? null) : null
               }
