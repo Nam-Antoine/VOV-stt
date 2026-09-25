@@ -78,6 +78,16 @@ export interface Transcript {
   utterances: Utterance[]
   /** The punctuation model is installed on the server. */
   readable_available: boolean
+  /** disabled | ok | token_invalid | error: <reason> */
+  google_repo: string
+}
+
+/** The Google Sheet + Docs repository (read-only here). */
+export interface GoogleRepo {
+  enabled: boolean
+  sheet_url: string | null
+  /** ISO time of the last full sync, UTC. */
+  last_full_sync: string | null
 }
 
 export interface Job {
