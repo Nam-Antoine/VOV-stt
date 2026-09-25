@@ -170,7 +170,7 @@ class World:
         monkeypatch.setattr(sheet, "rows", lambda s: [
             [e.slug, sheet.title_cell(e.title, getattr(self.rows.get(e.id), "doc_id", None)),
              e.air_date.isoformat(), sheet.duration_text(e.duration_s), e.source_url,
-             "asr", e.status, "", "", getattr(self.rows.get(e.id), "syllables", "")]
+             e.status, "", getattr(self.rows.get(e.id), "syllables", "")]
             for e in self.episodes
         ])
 
@@ -340,8 +340,8 @@ def test_enqueue_is_one_try_and_one_pending_job_per_episode(monkeypatch, enabled
 
 def test_sheet_header_exact():
     assert sheet.HEADER == [
-        "Episode ID", "Title", "Air date", "Duration", "Source URL", "Tier", "Status",
-        "Verified by", "Verified date", "Syllables",
+        "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
+        "Trạng thái", "Người duyệt", "Số âm tiết",
     ]
     lowered = [h.lower() for h in sheet.HEADER]
     for banned in ("guest", "mc"):
@@ -353,7 +353,7 @@ def test_duration_stays_text_and_titles_escape_quotes():
     assert sheet.duration_text(None) == ""
     assert sheet.title_cell('A "b"', None) == 'A "b"'
     assert sheet.title_cell('A "b"', "X") == (
-        '=HYPERLINK("https://docs.google.com/document/d/X/edit", "A ""b""")')
+        '=HYPERLINK("https://docs.google.com/document/d/X/edit"; "A ""b""")')
 
 
 # --- auth -----------------------------------------------------------------------------

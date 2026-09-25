@@ -10,7 +10,7 @@ import hashlib
 import json
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import loader
@@ -25,9 +25,16 @@ log = logging.getLogger("google_repo")
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 HEADER = [
-    "Episode ID", "Title", "Air date", "Duration", "Source URL", "Tier", "Status",
-    "Verified by", "Verified date", "Syllables",
+    "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
+    "Trạng thái", "Người duyệt", "Số âm tiết",
 ]
+
+#: Same wording as the web app (web/src/labels.ts).
+STATUS_LABEL = {
+    "ingested": "Đã tải lên", "queued": "Đang chờ", "processing": "Đang xử lý",
+    "transcribed": "Đã chép lời", "verifying": "Đang duyệt", "verified": "Đã duyệt",
+    "failed": "Lỗi",
+}
 
 
 def ensure_sheet(session: Session, g: Google) -> str:
@@ -45,6 +52,12 @@ def ensure_sheet(session: Session, g: Google) -> str:
     tabs = call(g, g.sheets.spreadsheets().get(
         spreadsheetId=sheet_id, fields="sheets.properties.sheetId"))["sheets"]
     call(g, g.sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": [{
+        # Pinned, because formula argument separators depend on it: title_cell writes
+        # ";" as vi_VN expects, and a "," there shows #ERROR!.
+        "updateSpreadsheetProperties": {
+            "properties": {"locale": "vi_VN"}, "fields": "locale",
+        },
+    }, {
         "updateSheetProperties": {
             "properties": {"sheetId": tabs[0]["properties"]["sheetId"],
                            "gridProperties": {"frozenRowCount": 1}},
@@ -69,7 +82,7 @@ def duration_text(seconds) -> str:  # noqa: ANN001 — Decimal or float
 def title_cell(title: str, doc_id: str | None) -> str:
     if not doc_id:
         return title
-    return f'=HYPERLINK("{doc_url(doc_id)}", "{title.replace(chr(34), chr(34) * 2)}")'
+    return f'=HYPERLINK("{doc_url(doc_id)}"; "{title.replace(chr(34), chr(34) * 2)}")'
 
 
 def rows(session: Session) -> list[list]:
@@ -85,34 +98,21 @@ def rows(session: Session) -> list[list]:
     )
     for ep in episodes:
         doc = docs.get(ep.id)
-        verified_by, verified_at, n_verified = "", None, 0
+        verified_by = ""
         transcript = loader.current_transcript(session, ep.id)
         if transcript is not None:
             q = select(Utterance).where(Utterance.transcript_id == transcript.id,
                                         Utterance.text_verified.is_not(None))
             names = sorted({u.verified_by for u in session.scalars(q) if u.verified_by})
             verified_by = ", ".join(names)
-            verified_at, n_verified = session.execute(
-                select(func.max(Utterance.verified_at), func.count())
-                .where(Utterance.transcript_id == transcript.id,
-                       Utterance.text_verified.is_not(None))
-            ).one()
-        if ep.status == "verified":
-            tier = "verified"
-        elif n_verified:
-            tier = "partly verified"
-        else:
-            tier = "asr"
         out.append([
             ep.slug,
             title_cell(ep.title or ep.slug, doc.doc_id if doc else None),
             ep.air_date.isoformat() if ep.air_date else "",
             duration_text(ep.duration_s),
             ep.source_url or "",
-            tier,
-            ep.status,
+            STATUS_LABEL.get(ep.status, ep.status),
             verified_by,
-            verified_at.date().isoformat() if verified_at else "",
             doc.syllables if doc and doc.doc_id and doc.syllables is not None else "",
         ])
     return out
