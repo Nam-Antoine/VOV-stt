@@ -27,6 +27,11 @@ dependencies = [
     "soundfile>=0.12",
     "sentencepiece>=0.2",
     "huggingface_hub>=0.24",       # scripts/download_models.py
+    # Google Sheet + Docs repository (GOOGLE_REPO_PLAN). Google's API clients, not LLMs.
+    "google-api-python-client>=2.140",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
 ]
 
 [project.optional-dependencies]
