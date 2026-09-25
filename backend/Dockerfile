@@ -22,7 +22,9 @@ RUN python -m pip install --upgrade pip \
        "pydantic>=2.8" "pydantic-settings>=2.4" "sqlalchemy>=2.0.30" "alembic>=1.13" \
        "psycopg[binary]>=3.2" "python-multipart>=0.0.9" "itsdangerous>=2.2" \
        "sherpa-onnx>=1.12" "onnxruntime>=1.18" "numpy>=1.26" "soundfile>=0.12" "sentencepiece>=0.2" \
-       "huggingface_hub>=0.24" "fpdf2>=2.7"
+       "huggingface_hub>=0.24" "fpdf2>=2.7" \
+       "google-api-python-client>=2.140" "google-auth>=2.30" "google-auth-oauthlib>=1.2" \
+       "google-auth-httplib2>=0.2"
 
 COPY . .
 RUN python -m pip install --no-deps -e .
