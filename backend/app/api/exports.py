@@ -7,8 +7,8 @@ Every response is regenerated from the raw JSON plus the verified layer (PLAN §
 nothing is cached to disk and then allowed to drift from the record it came from.
 
 ``docx`` is not in PLAN §1.5. It was added because the client's reference deliverable
-(`resource/docs/*.docx`) is a Word document, and it is a *layout* only: speaker headings
-plus one paragraph per utterance, with the text unchanged (CLAUDE.md rule 1).
+(`resource/docs/*.docx`) is a Word document, and it is a *layout* only: one paragraph
+per utterance, with the text unchanged (CLAUDE.md rule 1).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ FORMATS = {
 
 
 def _load(session: Session, episode_id: uuid.UUID):
-    """``(episode, raw doc, speakers, overrides)`` for the current transcript."""
+    """``(episode, raw doc, overrides)`` for the current transcript."""
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
@@ -74,47 +74,35 @@ def _load(session: Session, episode_id: uuid.UUID):
     return (
         episode,
         doc,
-        loader.speaker_labels(session, episode.id),
         loader.overrides_for(session, transcript.id),
     )
 
 
-def render(fmt: str, doc: dict, speakers: dict, overrides: dict,
-           title: str) -> bytes:
+def render(fmt: str, doc: dict, overrides: dict, title: str) -> bytes:
     """Render one format to bytes, applying the verified layer where the tier wants it."""
-    verified_doc = json_verified.build(doc, overrides=overrides, speakers=speakers)
+    verified_doc = json_verified.build(doc, overrides=overrides)
 
     if fmt == "json":
         return (json.dumps(doc, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     if fmt == "verified.json":
-        return json_verified.render(
-            doc, overrides=overrides, speakers=speakers
-        ).encode("utf-8")
+        return json_verified.render(doc, overrides=overrides).encode("utf-8")
     if fmt == "txt":
-        return txt.render(doc, tier=TIER_ASR, speakers=speakers).encode("utf-8")
+        return txt.render(doc, tier=TIER_ASR).encode("utf-8")
     if fmt == "verified.txt":
-        return txt.render(
-            verified_doc, tier=TIER_VERIFIED, speakers=speakers
-        ).encode("utf-8")
+        return txt.render(verified_doc, tier=TIER_VERIFIED).encode("utf-8")
     if fmt == "csv":
-        return csv.render(doc, speakers=speakers).encode("utf-8")
+        return csv.render(doc).encode("utf-8")
     if fmt == "srt":
-        return srt.render(
-            verified_doc, tier=TIER_VERIFIED, speakers=speakers
-        ).encode("utf-8")
+        return srt.render(verified_doc, tier=TIER_VERIFIED).encode("utf-8")
     if fmt == "eaf":
-        return eaf.render(
-            verified_doc, tier=TIER_VERIFIED, speakers=speakers
-        ).encode("utf-8")
+        return eaf.render(verified_doc, tier=TIER_VERIFIED).encode("utf-8")
     if fmt == "docx":
-        return docx.render_bytes(
-            verified_doc, tier=TIER_VERIFIED, speakers=speakers, title=title
-        )
+        return docx.render_bytes(verified_doc, tier=TIER_VERIFIED, title=title)
     raise HTTPException(status_code=404, detail=f"định dạng không hỗ trợ {fmt!r}")
 
 
 def _readable(session: Session, episode_id: uuid.UUID, fmt: str):
-    """Refresh stale turns of the readable layer, then lay it out."""
+    """Refresh stale passages of the readable layer, then lay it out."""
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
@@ -123,17 +111,15 @@ def _readable(session: Session, episode_id: uuid.UUID, fmt: str):
         raise HTTPException(status_code=409, detail="tập này chưa có bản chép lời")
     refresh_readable_layer(session, transcript)
     items = [
-        {"speaker": u.speaker, "text": u.text_readable}
+        {"start": float(u.start_s), "end": float(u.end_s), "text": u.text_readable}
         for u in readable_mod.ordered_utterances(session, transcript.id)
     ]
-    speakers = loader.speaker_labels(session, episode.id)
     title = episode.title or episode.slug
     if fmt == "readable.txt":
-        return episode, readable_export.render_txt(
-            items, speakers=speakers, title=title).encode("utf-8")
+        return episode, readable_export.render_txt(items, title=title).encode("utf-8")
     if fmt == "readable.pdf":
-        return episode, readable_export.render_pdf(items, speakers=speakers, title=title)
-    return episode, readable_export.render_docx(items, speakers=speakers, title=title)
+        return episode, readable_export.render_pdf(items, title=title)
+    return episode, readable_export.render_docx(items, title=title)
 
 
 @router.get("/episodes/{episode_id}/export.{fmt}")
@@ -152,9 +138,9 @@ def export_episode(
     if fmt.startswith("readable."):
         episode, body = _readable(session, episode_id, fmt)
     else:
-        episode, doc, speakers, overrides = _load(session, episode_id)
+        episode, doc, overrides = _load(session, episode_id)
         title = episode.title or episode.slug
-        body = render(fmt, doc, speakers, overrides, title)
+        body = render(fmt, doc, overrides, title)
     return Response(
         content=body,
         media_type=media_type,
@@ -211,12 +197,11 @@ def corpus_zip(
             if tier == "verified" and not n_verified:
                 continue
             doc = json.loads(path.read_text(encoding="utf-8"))
-            speakers = loader.speaker_labels(session, episode.id)
             title = episode.title or episode.slug
             for fmt in ("json", "verified.json", "txt", "csv", "srt", "eaf", "docx"):
                 archive.writestr(
                     f"{episode.slug}/{episode.slug}.{FORMATS[fmt][1]}",
-                    render(fmt, doc, speakers, overrides, title),
+                    render(fmt, doc, overrides, title),
                 )
             included += 1
 
@@ -247,7 +232,7 @@ def all_readable_zip(
 ) -> StreamingResponse:
     """Every finished episode's reading copy in one format, one file per episode.
 
-    Episodes still being transcribed or waiting for speaker labels are skipped, and
+    Episodes still being transcribed are skipped, and
     listed in the zip's README so nobody wonders where they went.
     """
     # Without the model every episode would fail; say so once, not once per file.

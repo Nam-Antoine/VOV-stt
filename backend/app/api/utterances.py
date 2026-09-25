@@ -16,27 +16,11 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import Transcript, Utterance, UtteranceEdit, Word
+from ..models import Utterance, UtteranceEdit, Word
 from ..schemas import UtteranceOut, UtterancePatch, UtteranceSplit
-from .deps import SPEAKERS_PENDING, require_editor
+from .deps import require_editor
 
 router = APIRouter(prefix="/utterances", tags=["utterances"])
-
-
-#: 409 detail while the transcript is the ASR-only preview.
-SPEAKERS_PENDING_DETAIL = f"{SPEAKERS_PENDING} rồi hãy sửa"
-
-
-def ensure_editable(transcript: Transcript | None) -> None:
-    """Refuse edits against a speakers-pending (ASR-only) transcript.
-
-    Its utterances are grouped without speaker turns, so the final transcript that
-    replaces it within minutes has different utterance boundaries: an edit made here
-    could not be carried over faithfully and would be left behind on a non-current
-    row. Refusing is the only option that never strands human work.
-    """
-    if transcript is not None and transcript.speakers_pending:
-        raise HTTPException(status_code=409, detail=SPEAKERS_PENDING_DETAIL)
 
 
 def _get(session: Session, utterance_id: uuid.UUID) -> Utterance:
@@ -44,7 +28,6 @@ def _get(session: Session, utterance_id: uuid.UUID) -> Utterance:
     utterance = session.get(Utterance, utterance_id)
     if utterance is None:
         raise HTTPException(status_code=404, detail="không tìm thấy lượt lời")
-    ensure_editable(session.get(Transcript, utterance.transcript_id))
     return utterance
 
 
@@ -62,7 +45,7 @@ def patch_utterance(
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> UtteranceOut:
-    """Update text_verified / speaker / flags / bounds.
+    """Update text_verified / flags / bounds.
 
     ``text_verified=""`` is a real edit meaning "no speech here"; only ``None`` means
     untouched, so the presence of the field in the payload is what matters, not its
@@ -80,8 +63,6 @@ def patch_utterance(
             utterance.verified_at = datetime.now(UTC)
             _log_edit(session, utterance, before, after, editor)
 
-    if "speaker" in patch and patch["speaker"] is not None:
-        utterance.speaker = int(patch["speaker"])
     if "flags" in patch and patch["flags"] is not None:
         utterance.flags = list(patch["flags"])
     if "start_s" in patch and patch["start_s"] is not None:
@@ -100,7 +81,7 @@ def split_utterance(
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> list[UtteranceOut]:
-    """Split at ``at_word_i`` — used when diarization merged two speakers.
+    """Split at ``at_word_i`` — e.g. where one utterance runs across a turn change.
 
     The split point is a **word index**, so the text is divided on a boundary the engine
     itself produced. Neither half is re-joined or re-spaced: each is the space-join of
@@ -145,7 +126,6 @@ def split_utterance(
     tail_utterance = Utterance(
         transcript_id=utterance.transcript_id,
         i=utterance.i + 1,
-        speaker=utterance.speaker,
         start_s=float(tail[0].start_s),
         end_s=utterance.end_s,
         text_asr=" ".join(w.text for w in tail),
