@@ -12,6 +12,9 @@ export default function Exports() {
   const health = useQuery({ queryKey: ['health'], queryFn: () => api.health(), retry: false })
   const noModel = health.data?.readable_available === false
   const NO_MODEL = 'Máy chủ chưa cài mô hình thêm dấu câu'
+  const google = useQuery({ queryKey: ['google-repo'], queryFn: () => api.googleRepo() })
+  const sheetUrl = google.data?.enabled ? google.data.sheet_url : null
+  const lastSync = google.data?.last_full_sync
 
   return (
     <section>
@@ -30,6 +33,16 @@ export default function Exports() {
           />
         </div>
       </header>
+
+      {sheetUrl && (
+        <p className="mb-4 text-sm text-muted">
+          <a href={sheetUrl} target="_blank" rel="noreferrer" className="font-medium text-ink underline underline-offset-2">
+            Google Sheet
+          </a>{' '}
+          — mỗi tập một Google Doc, chỉ để đọc; sửa bản chép lời trong ứng dụng này.
+          {lastSync && <> Đồng bộ toàn bộ lần cuối: {new Date(lastSync).toLocaleString('vi-VN')}.</>}
+        </p>
+      )}
 
       {/* Not overflow-hidden: the download menu of the last row must be able to hang below. */}
       <div className="rounded-xl border border-line bg-surface">

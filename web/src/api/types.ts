@@ -10,7 +10,7 @@ export type EpisodeStatus =
   | 'verified'
   | 'failed'
 
-export type JobKind = 'transcribe' | 'export'
+export type JobKind = 'transcribe' | 'export' | 'google_sync'
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export interface Episode {
@@ -80,6 +80,14 @@ export interface Transcript {
   readable_available: boolean
 }
 
+/** The Google Sheet + Docs repository (read-only here). */
+export interface GoogleRepo {
+  enabled: boolean
+  sheet_url: string | null
+  /** ISO time of the last full sync, UTC. */
+  last_full_sync: string | null
+}
+
 export interface Job {
   id: string
   episode_id: string | null
@@ -125,6 +133,8 @@ export interface Health {
   worker_heartbeat_s: number | null
   version: string
   readable_available: boolean
+  /** disabled | ok | token_invalid | error: <reason> */
+  google_repo: string
 }
 
 export const UTTERANCE_FLAGS = ['overlap', 'unclear', 'music', 'not-speech'] as const

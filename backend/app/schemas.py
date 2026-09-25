@@ -252,3 +252,12 @@ class Health(BaseModel):
     version: str
     # False → the Word/PDF/TXT downloads answer 503 (no punctuation model installed).
     readable_available: bool = False
+    #: disabled | ok | token_invalid | error: <short reason> (GOOGLE_REPO_PLAN Task 8).
+    google_repo: str = "disabled"
+
+
+class GoogleRepoOut(BaseModel):
+    enabled: bool
+    sheet_url: str | None = None
+    #: ISO time of the last ``--all`` sync, UTC.
+    last_full_sync: str | None = None

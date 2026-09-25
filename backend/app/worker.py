@@ -47,6 +47,9 @@ CLAIM_SQL = text(
      WHERE id = (
         SELECT id FROM jobs
          WHERE status = 'queued'
+           -- google_sync edit debounce (app/google_repo/sync.py)
+           AND (params->>'not_before' IS NULL
+                OR (params->>'not_before')::timestamptz <= now())
          ORDER BY created_at
            FOR UPDATE SKIP LOCKED
          LIMIT 1
@@ -245,6 +248,9 @@ def handle_transcribe(session, job: dict) -> str:  # noqa: ANN001
         episode.duration_s = float(audio_block["duration_s"])
     episode.status = "transcribed"
     session.flush()
+    from .google_repo import sync as google_sync
+
+    google_sync.enqueue(session, episode.id)
 
     timing = doc.get("timing") or {}
     return (
@@ -311,7 +317,18 @@ def handle_export(session, job: dict) -> str:  # noqa: ANN001
     return f"{len(written)} exports -> {settings.exports_dir / episode.slug}"
 
 
-HANDLERS = {"transcribe": handle_transcribe, "export": handle_export}
+def handle_google_sync(session, job: dict) -> str:  # noqa: ANN001
+    """Upsert one episode's Google Doc (or all), then rebuild the index Sheet."""
+    from .google_repo import sync as google_sync
+
+    return google_sync.handle_job(session, job)
+
+
+HANDLERS = {
+    "transcribe": handle_transcribe,
+    "export": handle_export,
+    "google_sync": handle_google_sync,
+}
 
 
 def run_once() -> bool:

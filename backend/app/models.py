@@ -40,7 +40,7 @@ from .db import Base
 EPISODE_STATUSES = (
     "ingested", "queued", "processing", "transcribed", "verifying", "verified", "failed",
 )
-JOB_KINDS = ("transcribe", "export")
+JOB_KINDS = ("transcribe", "export", "google_sync")
 JOB_STATUSES = ("queued", "running", "done", "failed")
 
 
@@ -289,3 +289,34 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GoogleRepoState(Base):
+    """Key/value state of the Google repository: ``folder_id``, ``sheet_id``… (T3)."""
+
+    __tablename__ = "google_repo_state"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class EpisodeGoogleDoc(Base):
+    """The Google Doc of one episode. ``episode_id`` NULL = orphan (episode deleted)."""
+
+    __tablename__ = "episode_google_doc"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    episode_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("episodes.id", ondelete="SET NULL"), unique=True
+    )
+    doc_id: Mapped[str | None] = mapped_column(Text)
+    text_sha256: Mapped[str | None] = mapped_column(Text)
+    layer_used: Mapped[str | None] = mapped_column(Text)
+    doc_title: Mapped[str | None] = mapped_column(Text)
+    #: ``len(text.split())`` of the Doc body, for the Sheet's Syllables column.
+    syllables: Mapped[int | None] = mapped_column(Integer)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)

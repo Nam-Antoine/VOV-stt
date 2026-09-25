@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.exports import TIER_VERIFIED, csv, docx, eaf, json_verified, srt, txt
+from app.exports import TIER_VERIFIED, csv, docx, eaf, json_verified, plain, srt, txt
 from app.pipeline import merge as merge_mod
 from app.pipeline.asr import tokens_to_words
 from app.pipeline.run import write_raw_json
@@ -277,3 +277,40 @@ def test_no_export_carries_speaker_information():
     assert "speaker" not in csv.render(doc).splitlines()[0]
     assert "speaker" not in json_verified.render(doc)
     assert "SPEAKER" not in docx_document_xml(doc)
+
+
+# ---------------------------------------------------------------------------
+# Google Doc body (GOOGLE_REPO_PLAN Task 1)
+# ---------------------------------------------------------------------------
+
+def plain_items(texts=MESSY_WORDS, per_utt=5, gap=0.2):
+    """Utterances of ``per_utt`` words, with a 2 s pause after every third one."""
+    items, t = [], 0.0
+    for k in range(0, len(texts), per_utt):
+        chunk = texts[k:k + per_utt]
+        items.append({"start": t, "end": t + 0.2 * len(chunk), "text": " ".join(chunk)})
+        t += 0.2 * len(chunk) + (2.0 if len(items) % 3 == 0 else gap)
+    return items
+
+
+def test_plain_verbatim_keeps_every_word_token_for_token():
+    items = plain_items(MESSY_WORDS * 8)
+    body = plain.render(items, layer="verbatim", labels=False)
+    assert body.split() == MESSY_WORDS * 8
+    assert body.endswith("\n") and not body.endswith("\n\n")
+    assert "\n\n\n" not in body
+
+
+def test_plain_readable_has_the_verbatim_words_ignoring_case_and_punctuation():
+    """The readable layer may only add punctuation and capitals, never change a word."""
+    verbatim = plain_items(MESSY_WORDS * 8)
+    readable = [
+        {**it, "text": it["text"][0].upper() + it["text"][1:] + ("." if k % 2 else ",")}
+        for k, it in enumerate(verbatim)
+    ]
+    body = plain.render(readable, layer="readable", labels=False)
+
+    def bare(text):
+        return [re.sub(r"[.,?!:;]+$", "", w).lower() for w in text.split()]
+
+    assert bare(body) == MESSY_WORDS * 8

@@ -5,6 +5,7 @@ import type {
   Episode,
   EpisodeDetail,
   EpisodeListItem,
+  GoogleRepo,
   Health,
   Hotword,
   HotwordSuggestion,
@@ -62,6 +63,7 @@ export const api = {
   // --- ops ---------------------------------------------------------------
   health: () => request<Health>('/health'),
   stats: () => request<Stats>('/stats'),
+  googleRepo: () => request<GoogleRepo>('/google-repo'),
 
   // --- auth --------------------------------------------------------------
   login: (username: string, password: string) =>
