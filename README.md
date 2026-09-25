@@ -104,6 +104,57 @@ carries, and `test_no_normalisation.py` holds it to that like the rest.
 Every export is regenerated from the raw JSON plus the verified layer. Nothing is cached
 and then allowed to drift (PLAN §0.2).
 
+## Google repository
+
+A copy of the transcripts in the owner's Google Drive (`GOOGLE_REPO_PLAN.md`):
+
+- a folder, `Đàn bà 30+ Corpus`;
+- in it, a Sheet, `Đàn bà 30+ Corpus — Index`, with one row per episode and 10 columns (Episode ID,
+  Title, Air date, Duration, Source URL, Tier, Status, Verified by, Verified date,
+  Syllables). The Title cell links to the episode's Doc;
+- in it, one Google Doc per transcribed episode: the punctuated reading copy, no speaker labels
+  (`GOOGLE_DOC_LAYER=verbatim` puts the corpus text there instead).
+
+It is generated from the database and never read back. Access is an OAuth desktop client with
+the `drive.file` scope only, so the app sees nothing in Drive except the files it made, and
+it never deletes anything there. Off by default (`GOOGLE_REPO_ENABLED=false`).
+
+Owner's steps, once:
+
+1. In Google Cloud, enable the **Google Drive API**, **Google Docs API** and **Google Sheets
+   API**.
+2. Create an OAuth client ID of type **Desktop app** and download its JSON **right away**:
+   the secret is shown only once. Under *Audience*, set the app to **In production**:
+   tokens of an app in testing mode expire after 7 days.
+3. On a laptop, with the Google account that should own the repository:
+
+   ```bash
+   pip install google-auth-oauthlib
+   # from a checkout of this repo, in backend/
+   python -m app.google_repo.auth --init --credentials ./credentials.json --out ./token.json
+   ```
+
+   A browser opens; approve. (No browser on that machine? Add `--manual`: it prints the link
+   and asks for the address the browser lands on.)
+4. Copy both files to the VPS, into `data/google/` in the repo checkout (mounted as
+   `/data/google/` in the containers):
+
+   ```bash
+   scp credentials.json token.json <vps>:/ternary/vov-stt/data/google/
+   ```
+
+5. Set `GOOGLE_REPO_ENABLED=true` in `.env`, run `docker compose up -d api worker`, then
+   `make google-check` (shows the owning account) and `make google-sync`.
+6. In Drive, share the folder with the client as **Viewer**.
+7. **Edit transcripts and episode details in the app, never in the Sheet or the Docs.** Every
+   sync overwrites them.
+
+After that it runs by itself: a finished transcription queues a sync of that episode, and a
+saved edit queues one that runs `GOOGLE_EDIT_DEBOUNCE_MIN` (10) minutes later.
+`make google-status` prints synced / pending / errors / orphans; `/api/health` reports
+`google_repo: ok | token_invalid | disabled | error: …`. If Google revokes the sign-in, repeat
+step 3 and copy the new `token.json`.
+
 ## CI / CD
 
 `.github/workflows/ci.yml` runs on every push and pull request:
