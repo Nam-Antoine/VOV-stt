@@ -26,28 +26,22 @@ const STATUS_STYLE: Record<EpisodeStatus, string> = {
 
 const IN_FLIGHT = ['queued', 'processing']
 
-/** Measured on this box: 846 s of audio in ~166 s wall clock, diarization included. */
-const REALTIME_FACTOR = 5.1
+/** Measured on this box: 889 s of audio in ~70 s wall clock (ASR ~42 s + punctuation).
+ *  Kept conservative for a loaded box. */
+const REALTIME_FACTOR = 10
 
 const AUTO_KEY = 'vnstt.autoTranscribe'
 
 /** The server's cap; checked here too so a huge file is skipped before it is sent. */
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 
-export function StatusChip({
-  status,
-  speakersPending = false,
-}: {
-  status: EpisodeStatus
-  /** Text is readable already; only the speaker labels are still being worked out. */
-  speakersPending?: boolean
-}) {
+export function StatusChip({ status }: { status: EpisodeStatus }) {
   return (
     <span className={`chip ${STATUS_STYLE[status] ?? ''}`}>
       {(status === 'queued' || status === 'processing') && (
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden="true" />
       )}
-      {speakersPending ? 'Đã có văn bản' : (EPISODE_STATUS_LABEL[status] ?? status)}
+      {EPISODE_STATUS_LABEL[status] ?? status}
     </span>
   )
 }
@@ -228,7 +222,7 @@ export default function Episodes() {
   }, [busy])
 
   const transcribe = useMutation({
-    mutationFn: (id: string) => api.transcribe(id, { hotwords: true, diarize: true }),
+    mutationFn: (id: string) => api.transcribe(id, { hotwords: true }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['episodes'] }),
   })
 
@@ -267,7 +261,7 @@ export default function Episodes() {
         const queued = auto && waiting
         if (queued) {
           try {
-            await api.transcribe(episode.id, { hotwords: true, diarize: true })
+            await api.transcribe(episode.id, { hotwords: true })
           } catch (err) {
             failures.push({
               name: file.name,
@@ -467,7 +461,7 @@ export default function Episodes() {
                 <span className="block truncate">{e.title || e.slug}</span>
                 <span className="block truncate font-sans text-xs font-normal text-faint">{subtitle(e)}</span>
               </Link>
-              <StatusChip status={e.status} speakersPending={e.speakers_pending} />
+              <StatusChip status={e.status} />
             </div>
             <Progress episode={e} job={jobByEpisode.get(e.id)} now={now} />
             <div className="mt-2 flex items-center gap-3 text-xs text-muted">
@@ -516,7 +510,7 @@ export default function Episodes() {
                   {duration(e.duration_s)}
                 </td>
                 <td className="py-4 pr-4 align-top">
-                  <StatusChip status={e.status} speakersPending={e.speakers_pending} />
+                  <StatusChip status={e.status} />
                 </td>
                 <td className="py-4 pr-4 align-top tabular-nums text-muted">
                   {e.n_utterances ? `${e.n_verified} / ${e.n_utterances}` : '—'}
