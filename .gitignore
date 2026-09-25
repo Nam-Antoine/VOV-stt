@@ -43,6 +43,12 @@ node_modules/
 
 # --- env and secrets
 .env
+
+# --- Google OAuth + API secrets (PLAN.md R8): never committed, never printed
+/secret/
+client_secret*.json
+credentials.json
+token.json
 .env.*
 !.env.example
 
