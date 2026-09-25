@@ -2,9 +2,10 @@
 
 The readable layer is derived from the *current* text of each utterance — the verified
 text where a human has typed one, else the ASR text — so it follows edits. It is
-recomputed per speaker turn, and only for turns where something changed: a turn is
-stale when any of its utterances has no readable text yet, or its ``readable_from``
-no longer equals its current text (an edit, a revert, a split or merge).
+recomputed per passage (utterances between pauses, :func:`app.pipeline.merge.passages`),
+and only for passages where something changed: a passage is stale when any of its
+utterances has no readable text yet, or its ``readable_from`` no longer equals its
+current text (an edit, a revert, a split or merge).
 
 Nothing here writes ``text_asr`` or ``text_verified`` (CLAUDE.md rule 1).
 """
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from .models import Utterance
 from .pipeline import punctuate
+from .pipeline.merge import passages
 
 log = logging.getLogger(__name__)
 
@@ -42,12 +44,12 @@ def ordered_utterances(session: Session, transcript_id: uuid.UUID) -> list[Utter
 
 def refresh(session: Session, transcript_id: uuid.UUID,
             punctuator: punctuate.Punctuator) -> int:
-    """Recompute stale turns. Returns the number of utterances written. Flushes only."""
+    """Recompute stale passages. Returns the number of utterances written. Flushes only."""
     rows = ordered_utterances(session, transcript_id)
     t0 = time.monotonic()
     written = 0
-    for turn in punctuate.turns([{"speaker": u.speaker} for u in rows]):
-        members = [rows[k] for k in turn]
+    for group in passages([{"start": float(u.start_s), "end": float(u.end_s)} for u in rows]):
+        members = [rows[k] for k in group]
         if not any(is_stale(u) for u in members):
             continue
         texts = [current_text(u) for u in members]

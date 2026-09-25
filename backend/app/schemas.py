@@ -96,37 +96,21 @@ class EpisodeOut(ORMModel, EpisodeBase):
     updated_at: datetime
 
 
-class SpeakerOut(ORMModel):
-    cluster: int
-    label: str | None = None
-
-
-class SpeakerLabel(BaseModel):
-    label: str
-
-
 class EpisodeDetail(EpisodeOut):
-    """Episode + current transcript summary + speakers (PLAN §9)."""
+    """Episode + current transcript summary (PLAN §9)."""
 
     current_transcript_id: uuid.UUID | None = None
     n_utterances: int = 0
     n_verified: int = 0
     n_words: int = 0
-    #: True while the current transcript is the ASR-only preview: text is final,
-    #: speakers are still being worked out and the utterances are read-only.
-    speakers_pending: bool = False
-    speakers: list[SpeakerOut] = Field(default_factory=list)
 
 
 class EpisodeListItem(EpisodeOut):
-    """Row shape for the Episodes table: the counts, without the speaker list."""
+    """Row shape for the Episodes table: the transcript counts."""
 
     current_transcript_id: uuid.UUID | None = None
     n_utterances: int = 0
     n_verified: int = 0
-    #: True while the current transcript is the ASR-only preview: text is final,
-    #: speakers are still being worked out and the utterances are read-only.
-    speakers_pending: bool = False
 
 
 # --- jobs -------------------------------------------------------------------
@@ -157,8 +141,6 @@ class TranscribeRequest(BaseModel):
     blank_penalty: float | None = None
     decoding_method: str | None = None
     hotwords: bool = True
-    diarize: bool = True
-    diar_threshold: float | None = None
     vad_threshold: float | None = None
 
 
@@ -170,13 +152,11 @@ class WordOut(ORMModel):
     start_s: float
     end_s: float | None = None
     conf: float | None = None
-    speaker: int
 
 
 class UtteranceOut(ORMModel):
     id: uuid.UUID
     i: int
-    speaker: int
     start_s: float
     end_s: float
     text_asr: str
@@ -197,12 +177,10 @@ class TranscriptOut(ORMModel):
     params: dict | None = None
     hotwords_sha256: str | None = None
     created_at: datetime
-    speakers_pending: bool = False
     #: Whether the readable layer can be computed on this host (model present).
     readable_available: bool = False
     words: list[WordOut] = Field(default_factory=list)
     utterances: list[UtteranceOut] = Field(default_factory=list)
-    speakers: list[SpeakerOut] = Field(default_factory=list)
 
 
 class UtterancePatch(BaseModel):
@@ -214,7 +192,6 @@ class UtterancePatch(BaseModel):
     """
 
     text_verified: str | None = None
-    speaker: int | None = None
     flags: list[str] | None = None
     start_s: float | None = None
     end_s: float | None = None
