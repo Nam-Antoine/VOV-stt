@@ -10,7 +10,7 @@ import hashlib
 import json
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import loader
@@ -26,7 +26,7 @@ SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 HEADER = [
     "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
-    "Trạng thái", "Người duyệt", "Ngày duyệt", "Số âm tiết",
+    "Trạng thái", "Người duyệt", "Số âm tiết",
 ]
 
 #: Same wording as the web app (web/src/labels.ts).
@@ -98,18 +98,13 @@ def rows(session: Session) -> list[list]:
     )
     for ep in episodes:
         doc = docs.get(ep.id)
-        verified_by, verified_at = "", None
+        verified_by = ""
         transcript = loader.current_transcript(session, ep.id)
         if transcript is not None:
             q = select(Utterance).where(Utterance.transcript_id == transcript.id,
                                         Utterance.text_verified.is_not(None))
             names = sorted({u.verified_by for u in session.scalars(q) if u.verified_by})
             verified_by = ", ".join(names)
-            verified_at = session.scalar(
-                select(func.max(Utterance.verified_at))
-                .where(Utterance.transcript_id == transcript.id,
-                       Utterance.text_verified.is_not(None))
-            )
         out.append([
             ep.slug,
             title_cell(ep.title or ep.slug, doc.doc_id if doc else None),
@@ -118,7 +113,6 @@ def rows(session: Session) -> list[list]:
             ep.source_url or "",
             STATUS_LABEL.get(ep.status, ep.status),
             verified_by,
-            verified_at.date().isoformat() if verified_at else "",
             doc.syllables if doc and doc.doc_id and doc.syllables is not None else "",
         ])
     return out
