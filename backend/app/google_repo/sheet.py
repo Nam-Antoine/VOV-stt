@@ -26,10 +26,8 @@ SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 HEADER = [
     "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
-    "Mức độ", "Trạng thái", "Người duyệt", "Ngày duyệt", "Số âm tiết",
+    "Trạng thái", "Người duyệt", "Ngày duyệt", "Số âm tiết",
 ]
-
-TIER_LABEL = {"asr": "Máy chép", "partly verified": "Duyệt một phần", "verified": "Đã duyệt"}
 
 #: Same wording as the web app (web/src/labels.ts).
 STATUS_LABEL = {
@@ -100,31 +98,24 @@ def rows(session: Session) -> list[list]:
     )
     for ep in episodes:
         doc = docs.get(ep.id)
-        verified_by, verified_at, n_verified = "", None, 0
+        verified_by, verified_at = "", None
         transcript = loader.current_transcript(session, ep.id)
         if transcript is not None:
             q = select(Utterance).where(Utterance.transcript_id == transcript.id,
                                         Utterance.text_verified.is_not(None))
             names = sorted({u.verified_by for u in session.scalars(q) if u.verified_by})
             verified_by = ", ".join(names)
-            verified_at, n_verified = session.execute(
-                select(func.max(Utterance.verified_at), func.count())
+            verified_at = session.scalar(
+                select(func.max(Utterance.verified_at))
                 .where(Utterance.transcript_id == transcript.id,
                        Utterance.text_verified.is_not(None))
-            ).one()
-        if ep.status == "verified":
-            tier = "verified"
-        elif n_verified:
-            tier = "partly verified"
-        else:
-            tier = "asr"
+            )
         out.append([
             ep.slug,
             title_cell(ep.title or ep.slug, doc.doc_id if doc else None),
             ep.air_date.isoformat() if ep.air_date else "",
             duration_text(ep.duration_s),
             ep.source_url or "",
-            TIER_LABEL[tier],
             STATUS_LABEL.get(ep.status, ep.status),
             verified_by,
             verified_at.date().isoformat() if verified_at else "",
