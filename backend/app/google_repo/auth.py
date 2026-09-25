@@ -114,6 +114,43 @@ def init(credentials: Path, out: Path, *, manual: bool = False) -> None:
           f"  scp {out} <vps>:/ternary/vov-stt/data/google/token.json")
 
 
+def _manual_flow(credentials: Path):
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    if not credentials.exists():
+        sys.exit(f"no OAuth client file at {credentials} (the Desktop-app JSON)")
+    # Loopback redirect over plain http is what Google's desktop clients use.
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+    flow = InstalledAppFlow.from_client_secrets_file(str(credentials), SCOPES)
+    flow.redirect_uri = "http://localhost:8765/"
+    return flow
+
+
+def start(credentials: Path, out: Path) -> None:
+    """Step 1 of a sign-in split across two commands: print the link, keep the state."""
+    flow = _manual_flow(credentials)
+    url, state = flow.authorization_url(access_type="offline", prompt="consent")
+    pending = out.with_name(".auth-pending.json")
+    write_atomic(pending, json.dumps({"state": state, "verifier": flow.code_verifier}))
+    print("Open this link and approve:\n\n" + url + "\n")
+    print("Then run --finish '<the http://localhost:8765/?… address the browser lands on>'")
+
+
+def finish(credentials: Path, out: Path, answer: str) -> None:
+    """Step 2: exchange the code in the redirect address for token.json."""
+    pending = out.with_name(".auth-pending.json")
+    if not pending.exists():
+        sys.exit("no sign-in in progress: run --start first")
+    saved = json.loads(pending.read_text(encoding="utf-8"))
+    flow = _manual_flow(credentials)
+    flow.code_verifier = saved["verifier"]
+    flow.oauth2session._state = saved["state"]
+    flow.fetch_token(authorization_response=answer.strip())
+    write_atomic(out, flow.credentials.to_json())
+    pending.unlink()
+    print(f"Saved {out.resolve()}")
+
+
 def check() -> int:
     from googleapiclient.discovery import build
 
@@ -136,6 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--init", action="store_true", help="sign in once, write token.json")
     mode.add_argument("--check", action="store_true", help="show the owning account")
+    mode.add_argument("--start", action="store_true",
+                      help="sign in over two commands, step 1: print the link")
+    mode.add_argument("--finish", metavar="ADDRESS",
+                      help="step 2: the http://localhost:8765/?… address")
     ap.add_argument("--credentials", type=Path, default=Path("credentials.json"))
     ap.add_argument("--out", type=Path, default=Path("token.json"))
     ap.add_argument("--manual", action="store_true",
@@ -143,6 +184,12 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.init:
         init(args.credentials, args.out, manual=args.manual)
+        return 0
+    if args.start:
+        start(args.credentials, args.out)
+        return 0
+    if args.finish:
+        finish(args.credentials, args.out, args.finish)
         return 0
     return check()
 
