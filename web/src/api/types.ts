@@ -10,7 +10,7 @@ export type EpisodeStatus =
   | 'verified'
   | 'failed'
 
-export type JobKind = 'transcribe' | 'export'
+export type JobKind = 'transcribe' | 'export' | 'google_sync'
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export interface Episode {
@@ -78,8 +78,6 @@ export interface Transcript {
   utterances: Utterance[]
   /** The punctuation model is installed on the server. */
   readable_available: boolean
-  /** disabled | ok | token_invalid | error: <reason> */
-  google_repo: string
 }
 
 /** The Google Sheet + Docs repository (read-only here). */
@@ -135,6 +133,8 @@ export interface Health {
   worker_heartbeat_s: number | null
   version: string
   readable_available: boolean
+  /** disabled | ok | token_invalid | error: <reason> */
+  google_repo: string
 }
 
 export const UTTERANCE_FLAGS = ['overlap', 'unclear', 'music', 'not-speech'] as const

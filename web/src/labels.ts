@@ -22,4 +22,5 @@ export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
 export const JOB_KIND_LABEL: Record<JobKind, string> = {
   transcribe: 'Chép lời',
   export: 'Xuất file',
+  google_sync: 'Đồng bộ Google',
 }
