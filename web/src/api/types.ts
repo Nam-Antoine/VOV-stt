@@ -10,7 +10,7 @@ export type EpisodeStatus =
   | 'verified'
   | 'failed'
 
-export type JobKind = 'transcribe' | 'export'
+export type JobKind = 'transcribe' | 'export' | 'google_sync'
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export interface Episode {
