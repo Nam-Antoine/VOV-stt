@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api/client'
-import ExportMenu, { SPEAKERS_PENDING } from '../components/ExportMenu'
+import ExportMenu from '../components/ExportMenu'
 
 export default function Exports() {
   const episodes = useQuery({ queryKey: ['episodes', ''], queryFn: () => api.listEpisodes() })
@@ -19,7 +19,7 @@ export default function Exports() {
         <div>
           <h1 className="title">Xuất file</h1>
           <p className="mt-1.5 text-sm text-muted">
-            Bản có dấu câu, mỗi người nói một đoạn, mỗi câu một dòng.
+            Bản có dấu câu, chia đoạn theo câu.
           </p>
         </div>
         <div className="sm:ml-auto">
@@ -51,8 +51,8 @@ export default function Exports() {
                 <td className="px-3 py-2 text-right">
                   <ExportMenu
                     episodeId={e.id}
-                    disabled={e.speakers_pending || noModel}
-                    disabledReason={noModel ? NO_MODEL : SPEAKERS_PENDING}
+                    disabled={noModel}
+                    disabledReason={NO_MODEL}
                   />
                 </td>
               </tr>

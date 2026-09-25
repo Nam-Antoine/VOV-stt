@@ -1,4 +1,4 @@
-// Utterances grouped by speaker, with inline-editable text (PLAN §10).
+// Utterances in playback order, with inline-editable text (PLAN §10). No speakers.
 //
 // The three attributes below are not cosmetic. The browser will happily capitalise the
 // first letter of an utterance, "fix" a repeated word, or autocorrect a dialect form —
@@ -14,12 +14,10 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Utterance, Word } from '../api/types'
 import { displayText } from '../api/types'
-import { speakerColour, speakerName } from './SpeakerLegend'
 
 export interface TranscriptEditorProps {
   utterances: Utterance[]
   words: Word[]
-  speakerLabels: Record<number, string>
   /** Click a word → seek and play from it. */
   onWordClick: (word: Word) => void
   onSave: (utteranceId: string, text: string) => void
@@ -32,8 +30,6 @@ export interface TranscriptEditorProps {
   followPlayhead?: boolean
   /** id of the utterance currently being written to the API. */
   savingId?: string | null
-  /** Text-first preview: speakers are still being worked out, so nothing is editable. */
-  readOnly?: boolean
   /** Show the punctuated reading layer where it is up to date. Editing is always on
    *  the verbatim text. */
   readable?: boolean
@@ -48,7 +44,6 @@ function timestamp(seconds: number) {
 function UtteranceBlock({
   utterance,
   words,
-  speakerLabels,
   onWordClick,
   onSave,
   onRevert,
@@ -56,14 +51,11 @@ function UtteranceBlock({
   active,
   follow,
   saving,
-  continued,
-  readOnly,
   readable,
   onActivate,
 }: {
   utterance: Utterance
   words: Word[]
-  speakerLabels: Record<number, string>
   onWordClick: (w: Word) => void
   onSave: (id: string, text: string) => void
   onRevert?: (id: string) => void
@@ -71,9 +63,6 @@ function UtteranceBlock({
   active: boolean
   follow: boolean
   saving: boolean
-  /** Same speaker as the utterance above: the margin shows only the time. */
-  continued: boolean
-  readOnly: boolean
   readable: boolean
   onActivate?: () => void
 }) {
@@ -83,7 +72,6 @@ function UtteranceBlock({
   const article = useRef<HTMLElement>(null)
   const saved = displayText(utterance)
   const dirty = editing && draft !== saved
-  const colour = speakerColour(utterance.speaker)
 
   useEffect(() => {
     if (!editing) setDraft(saved)
@@ -115,41 +103,26 @@ function UtteranceBlock({
     <article
       ref={article}
       onClick={onActivate}
-      onDoubleClick={() => !readOnly && setEditing(true)}
-      className={`utterance-anchor group relative grid gap-x-8 gap-y-1 px-4 py-4 sm:grid-cols-[9rem_1fr] sm:px-5 ${
-        continued ? '' : 'border-t border-line first:border-t-0'
-      } ${active ? 'bg-sunken' : 'hover:bg-sunken/60'} ${
+      onDoubleClick={() => setEditing(true)}
+      className={`utterance-anchor group relative grid gap-x-8 gap-y-1 px-4 py-4 sm:grid-cols-[9rem_1fr] sm:px-5 border-t border-line first:border-t-0 ${active ? 'bg-sunken' : 'hover:bg-sunken/60'} ${
         dirty ? 'bg-dirty/10' : ''
       }`}
     >
-      {/* The speaker's colour is a thin rule, not a painted box. */}
+      {/* The active line is marked by a thin rule, not a painted box. */}
       <span
         aria-hidden="true"
         className={`absolute inset-y-0 left-0 w-[3px] transition-opacity ${
-          active || dirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
-        }`}
-        style={{ backgroundColor: dirty ? undefined : colour }}
+          dirty ? 'bg-dirty' : 'bg-accent-strong'
+        } ${active || dirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'}`}
       />
 
       <header className="flex items-baseline gap-2 text-xs sm:flex-col sm:gap-0.5 sm:pt-1">
-        {!continued && !readOnly && (
-          <span className="flex items-center gap-1.5 font-semibold tracking-wide">
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: colour }}
-            />
-            <span className="truncate">{speakerName(speakerLabels, utterance.speaker)}</span>
-          </span>
-        )}
-        <span className={`tabular-nums text-faint ${continued || readOnly ? '' : 'sm:pl-3.5'}`}>
-          {timestamp(utterance.start_s)}
-        </span>
+        <span className="tabular-nums text-faint">{timestamp(utterance.start_s)}</span>
         {saving ? (
-          <span className="text-faint sm:pl-3.5">đang lưu…</span>
+          <span className="text-faint">đang lưu…</span>
         ) : verified ? (
           <span
-            className="flex items-center gap-1 font-medium text-verified dark:text-[#9cc487] sm:pl-3.5"
+            className="flex items-center gap-1 font-medium text-verified dark:text-[#9cc487]"
             title={
               utterance.verified_by
                 ? `sửa bởi ${utterance.verified_by}`
@@ -232,7 +205,7 @@ function UtteranceBlock({
           active || editing ? 'opacity-100' : 'opacity-0 focus-within:opacity-100 group-hover:opacity-100'
         }`}
       >
-        {!editing && !readOnly && (
+        {!editing && (
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -243,7 +216,7 @@ function UtteranceBlock({
             Sửa
           </button>
         )}
-        {verified && onRevert && !readOnly && (
+        {verified && onRevert && (
           <button
             onClick={(e) => {
               e.stopPropagation()
@@ -264,7 +237,6 @@ function UtteranceBlock({
 export default function TranscriptEditor({
   utterances,
   words,
-  speakerLabels,
   onWordClick,
   onSave,
   onRevert,
@@ -273,7 +245,6 @@ export default function TranscriptEditor({
   onActivate,
   followPlayhead = false,
   savingId = null,
-  readOnly = false,
   readable = false,
 }: TranscriptEditorProps) {
   // Bucket words by utterance once, by time span: the API sends both lists flat and a
@@ -297,7 +268,6 @@ export default function TranscriptEditor({
           key={u.id}
           utterance={u}
           words={u.text_verified === null ? (buckets.get(u.i) ?? []) : []}
-          speakerLabels={speakerLabels}
           onWordClick={onWordClick}
           onSave={onSave}
           onRevert={onRevert}
@@ -305,8 +275,6 @@ export default function TranscriptEditor({
           active={index === activeIndex}
           follow={followPlayhead}
           saving={savingId === u.id}
-          continued={index > 0 && utterances[index - 1].speaker === u.speaker}
-          readOnly={readOnly}
           readable={readable}
           onActivate={() => onActivate?.(index)}
         />
