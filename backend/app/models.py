@@ -40,7 +40,7 @@ from .db import Base
 EPISODE_STATUSES = (
     "ingested", "queued", "processing", "transcribed", "verifying", "verified", "failed",
 )
-JOB_KINDS = ("transcribe", "export")
+JOB_KINDS = ("transcribe", "export", "google_sync")
 JOB_STATUSES = ("queued", "running", "done", "failed")
 
 

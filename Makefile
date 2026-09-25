@@ -17,7 +17,8 @@ VENV_PY := $(VENV)/bin/python
 .DEFAULT_GOAL := help
 .PHONY: help env models dev dev-down dev-logs install install-backend install-web \
         test test-backend lint migrate revision seed pilot build deploy export \
-        backfill fmt clean demo models-verify run
+        backfill fmt clean demo models-verify run \
+        google-sync google-status google-check
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -151,6 +152,18 @@ export: ## Regenerate every export for one episode: make export EP=<slug>
 
 backfill: ## Enqueue transcribe jobs for audio with no transcript
 	$(COMPOSE) run --rm api python scripts/backfill.py
+
+# ---------------------------------------------------------------------------
+# Google Sheet + Docs repository (GOOGLE_REPO_PLAN.md; README "Google repository")
+# ---------------------------------------------------------------------------
+google-sync: ## Upsert every episode's Google Doc, then rebuild the index Sheet
+	$(COMPOSE) exec -T api python -m app.google_repo.sync --all
+
+google-status: ## Google repo counts: synced / pending / errors / orphans (read-only)
+	$(COMPOSE) exec -T api python -m app.google_repo.sync --status
+
+google-check: ## Which Google account owns the repo, and the token expiry
+	$(COMPOSE) exec -T api python -m app.google_repo.auth --check
 
 clean: ## Remove build output and caches (never touches /data or models/)
 	rm -rf $(WEB)/dist $(WEB)/node_modules/.vite
