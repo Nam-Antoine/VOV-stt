@@ -1,5 +1,5 @@
-// Downloads: the punctuated reading copy, laid out like the client's reference
-// document (speaker heading, one sentence per line). One button opens a menu of the
+// Downloads: the punctuated reading copy — a title, then paragraphs of whole sentences
+// (~80 words; a pause over 1.5 s always starts one), no speaker labels. One button opens a menu of the
 // three formats.
 //
 // The verbatim corpus formats (json, csv, srt, eaf…) still exist at
@@ -13,10 +13,8 @@ import { Chevron, Download } from './Icons'
 const FORMATS = [
   { fmt: 'readable.docx', label: 'Word (.docx)', hint: 'Mở và sửa được trong Word' },
   { fmt: 'readable.pdf', label: 'PDF', hint: 'Để in hoặc gửi đi, không sửa được' },
-  { fmt: 'readable.txt', label: 'Văn bản (.txt)', hint: 'Chữ thuần, mỗi câu một dòng' },
+  { fmt: 'readable.txt', label: 'Văn bản (.txt)', hint: 'Chữ thuần, mỗi đoạn một dòng' },
 ]
-
-export const SPEAKERS_PENDING = 'Tải về được khi xác định người nói xong'
 
 /** One episode's downloads; without ``episodeId`` it zips every finished episode. */
 export default function ExportMenu({

@@ -13,9 +13,6 @@ export type EpisodeStatus =
 export type JobKind = 'transcribe' | 'export'
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
 
-/** Words with no overlapping diarization segment (backend: merge.UNKNOWN_SPEAKER). */
-export const UNKNOWN_SPEAKER = -1
-
 export interface Episode {
   id: string
   slug: string
@@ -30,18 +27,10 @@ export interface Episode {
   updated_at: string
 }
 
-export interface Speaker {
-  cluster: number
-  /** Free text the verifier typed for THIS episode. Not an identity (PLAN §0.3). */
-  label: string | null
-}
-
 export interface EpisodeListItem extends Episode {
   current_transcript_id: string | null
   n_utterances: number
   n_verified: number
-  /** Current transcript is the ASR-only preview; speakers arrive when diarization ends. */
-  speakers_pending: boolean
 }
 
 export interface EpisodeDetail extends Episode {
@@ -49,8 +38,6 @@ export interface EpisodeDetail extends Episode {
   n_utterances: number
   n_verified: number
   n_words: number
-  speakers: Speaker[]
-  speakers_pending: boolean
 }
 
 export interface Word {
@@ -60,13 +47,11 @@ export interface Word {
   end_s: number | null
   /** Mean log-prob; lower is worse. null when the runtime gave no logprobs. */
   conf: number | null
-  speaker: number
 }
 
 export interface Utterance {
   id: string
   i: number
-  speaker: number
   start_s: number
   end_s: number
   /** Frozen engine output. Never edited. */
@@ -91,9 +76,6 @@ export interface Transcript {
   created_at: string
   words: Word[]
   utterances: Utterance[]
-  speakers: Speaker[]
-  /** Preview: every speaker is -1 and the API refuses edits (409). */
-  speakers_pending: boolean
   /** The punctuation model is installed on the server. */
   readable_available: boolean
 }

@@ -8,10 +8,7 @@ Sources
 -------
 ASR        ``hynt/Zipformer-30M-RNNT-6000h``   (CC BY-NC-ND 4.0 — see LICENSE-NOTICE.md)
 VAD        ``csukuangfj/vad``                  (silero_vad.onnx)
-Diarization segmentation
-           ``csukuangfj/sherpa-onnx-pyannote-segmentation-3-0``
-Diarization embedding
-           ``csukuangfj/speaker-embedding-models``
+Punctuation ``welcomyou/vibert-capu-onnx``     (readable layer only)
 
 Two things about the ASR repo that trip people up (PLAN §2, §13):
 
@@ -44,14 +41,7 @@ MANIFEST_VERSION = 1
 ASR_REPO = "hynt/Zipformer-30M-RNNT-6000h"
 ASR_DIR = "zipformer-30m-rnnt-6000h"
 VAD_REPO = "csukuangfj/vad"
-SEG_REPO = "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0"
-EMB_REPO = "csukuangfj/speaker-embedding-models"
 PUNCT_REPO = "welcomyou/vibert-capu-onnx"
-
-#: PLAN §3 recommends 3D-Speaker or WeSpeaker. The zh_en advanced CAM++ is the
-#: general-purpose default; override with --embedding.
-DEFAULT_EMBEDDING = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
-
 
 @dataclass(frozen=True)
 class Item:
@@ -73,7 +63,7 @@ class Report:
     failed: list[tuple[str, str]] = field(default_factory=list)
 
 
-def plan_items(*, int8: bool, fp32: bool, embedding: str) -> list[Item]:
+def plan_items(*, int8: bool, fp32: bool) -> list[Item]:
     """Build the download list. ``int8`` and ``fp32`` are not exclusive."""
     items: list[Item] = []
 
@@ -101,15 +91,6 @@ def plan_items(*, int8: bool, fp32: bool, embedding: str) -> list[Item]:
     items.append(
         Item(VAD_REPO, "silero_vad.onnx", "vad/silero_vad.onnx", role="vad",
              note="Silero VAD v4, MIT")
-    )
-    items.append(
-        Item(SEG_REPO, "model.onnx",
-             "diarization/sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
-             role="diarization-segmentation", note="pyannote/segmentation-3.0 ONNX export")
-    )
-    items.append(
-        Item(EMB_REPO, embedding, f"diarization/speaker-embedding/{embedding}",
-             role="diarization-embedding", note="speaker embedding extractor")
     )
     # Readable layer (app/readable.py): punctuation + capitals, CC BY-SA 4.0.
     for remote, role in (("vibert-capu.onnx", "punctuation-model"),
@@ -165,9 +146,9 @@ def fetch(item: Item, dest: Path, *, token: str | None) -> Path:
     return target
 
 
-def run(dest: Path, *, int8: bool, fp32: bool, embedding: str, verify_only: bool,
+def run(dest: Path, *, int8: bool, fp32: bool, verify_only: bool,
         force: bool, token: str | None) -> int:
-    items = plan_items(int8=int8, fp32=fp32, embedding=embedding)
+    items = plan_items(int8=int8, fp32=fp32)
     dest.mkdir(parents=True, exist_ok=True)
     old = load_manifest(dest)
     old_files = {f["path"]: f for f in old.get("files", [])}
@@ -262,8 +243,6 @@ def main(argv: list[str] | None = None) -> int:
                     help="skip the int8 ONNX graphs")
     ap.add_argument("--fp32", action="store_true",
                     help="also download the fp32 ONNX graphs (for the §4.3 int8-vs-fp32 sweep)")
-    ap.add_argument("--embedding", default=DEFAULT_EMBEDDING,
-                    help=f"speaker-embedding file in {EMB_REPO} (default: %(default)s)")
     ap.add_argument("--verify-only", action="store_true",
                     help="check what is present and its sha256; download nothing")
     ap.add_argument("--force", action="store_true", help="re-download even if present")
@@ -278,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"models -> {args.dest.resolve()}")
     print("ASR model licence: CC BY-NC-ND 4.0 (non-commercial). See LICENSE-NOTICE.md.\n")
-    return run(args.dest, int8=args.int8, fp32=args.fp32, embedding=args.embedding,
+    return run(args.dest, int8=args.int8, fp32=args.fp32,
                verify_only=args.verify_only, force=args.force, token=args.token)
 
 
