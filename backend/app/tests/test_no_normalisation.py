@@ -43,7 +43,7 @@ MESSY_WORDS = [
 MESSY_TEXT = " ".join(MESSY_WORDS)
 
 
-def make_words(texts=MESSY_WORDS, speaker=0, step=0.2):
+def make_words(texts=MESSY_WORDS, step=0.2):
     return [
         {
             "i": i,
@@ -51,7 +51,6 @@ def make_words(texts=MESSY_WORDS, speaker=0, step=0.2):
             "start": round(i * step, 3),
             "end": round(i * step + 0.1, 3),
             "conf": -0.1,
-            "speaker": speaker,
         }
         for i, t in enumerate(texts)
     ]
@@ -61,13 +60,12 @@ def make_doc(texts=MESSY_WORDS):
     words = make_words(texts)
     utterances = merge_mod.build_utterances(words, max_gap_s=10.0)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "episode_id": "00000000-0000-0000-0000-000000000000",
         "source": {"filename": "ep042.mp3", "url": None, "sha256": "0" * 64},
         "audio": {"duration_s": len(texts) * 0.2, "sample_rate": 16000, "channels": 1},
         "engine": {"name": "zipformer-30m-rnnt-6000h", "params": {}},
         "vad": {"model": "silero_vad.onnx", "segments": [[0.0, len(texts) * 0.2]]},
-        "diarization": {"segmentation": "pyannote-segmentation-3.0", "segments": []},
         "words": words,
         "utterances": utterances,
         "created_at": "2026-09-22T09:00:00+07:00",
@@ -85,9 +83,8 @@ def test_tokens_to_words_keeps_every_filler_and_repetition():
     assert [w["text"] for w in words] == MESSY_WORDS
 
 
-def test_merge_keeps_every_filler_and_repetition():
-    words = make_words()
-    _, utterances = merge_mod.merge(words, [{"start": 0.0, "end": 99.0, "speaker": 0}])
+def test_grouping_keeps_every_filler_and_repetition():
+    utterances = merge_mod.build_utterances(make_words())
     assert utterances[0]["text"] == MESSY_TEXT
 
 
@@ -103,10 +100,7 @@ def test_utterance_text_is_not_capitalised_or_punctuated():
 # ---------------------------------------------------------------------------
 
 def test_txt_export_is_unchanged():
-    line = txt.render(make_doc()).rstrip("\n")
-    speaker, _, text = line.partition("\t")
-    assert speaker == "SPEAKER_00"
-    assert text == MESSY_TEXT
+    assert txt.render(make_doc()) == MESSY_TEXT + "\n"
 
 
 def test_csv_export_round_trips_every_word_in_order():
@@ -115,15 +109,9 @@ def test_csv_export_round_trips_every_word_in_order():
 
 
 def test_srt_export_is_unchanged():
-    body = srt.render(make_doc(), with_speaker=False)
+    body = srt.render(make_doc())
     cue_text = body.strip().split("\n")[2]
     assert cue_text == MESSY_TEXT
-
-
-def test_srt_with_speaker_prefix_still_carries_the_text_verbatim():
-    body = srt.render(make_doc(), with_speaker=True)
-    cue_text = body.strip().split("\n")[2]
-    assert cue_text == f"[SPEAKER_00] {MESSY_TEXT}"
 
 
 def test_eaf_annotation_values_are_unchanged():
@@ -159,7 +147,7 @@ def test_verified_json_keeps_both_layers_when_a_human_edited():
 def test_verified_tier_exports_use_the_human_text_verbatim():
     edited = "à à ừ thì  hai   khoảng trắng"   # deliberate double spaces
     doc = json_verified.build(make_doc(), overrides={0: {"text_verified": edited}})
-    assert txt.render(doc, tier=TIER_VERIFIED).rstrip("\n").split("\t", 1)[1] == edited
+    assert txt.render(doc, tier=TIER_VERIFIED) == edited + "\n"
     root = ET.fromstring(eaf.render(doc, tier=TIER_VERIFIED))
     assert [el.text for el in root.iter("ANNOTATION_VALUE")] == [edited]
 
@@ -168,7 +156,7 @@ def test_empty_verified_text_is_honoured_not_treated_as_absent():
     """A verifier blanking an utterance ("that was music") is a real edit."""
     doc = json_verified.build(make_doc(), overrides={0: {"text_verified": ""}})
     assert doc["utterances"][0]["text"] == ""
-    assert txt.render(doc, tier=TIER_VERIFIED).rstrip("\n").endswith("\t")
+    assert txt.render(doc, tier=TIER_VERIFIED) == "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -231,17 +219,17 @@ def test_word_count_is_identical_across_every_export():
     doc = make_doc()
     expected = len(MESSY_WORDS)
 
-    txt_words = txt.render(doc).rstrip("\n").split("\t", 1)[1].split(" ")
+    txt_words = txt.render(doc).rstrip("\n").split(" ")
     csv_rows = list(_csv.DictReader(io.StringIO(csv.render(doc))))
-    srt_words = srt.render(doc, with_speaker=False).strip().split("\n")[2].split(" ")
+    srt_words = srt.render(doc).strip().split("\n")[2].split(" ")
     eaf_words = ET.fromstring(eaf.render(doc)).find(".//ANNOTATION_VALUE").text.split(" ")
     verified_words = json_verified.build(doc)["utterances"][0]["text"].split(" ")
 
-    # The docx body paragraph carrying the utterance, with the speaker heading skipped.
+    # The docx body paragraph carrying the utterance (the first one is the title).
     docx_xml = ET.fromstring(docx_document_xml(doc))
     w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
     docx_texts = [t.text or "" for t in docx_xml.iter(f"{w}t")]
-    docx_words = [t for t in docx_texts if not t.endswith(":")][-1].split(" ")
+    docx_words = docx_texts[-1].split(" ")
 
     assert len(txt_words) == expected
     assert len(docx_words) == expected
@@ -274,3 +262,18 @@ def test_a_source_module_never_calls_a_text_cleaning_helper():
                 if banned.search(line):
                     offenders.append(f"{path.name}:{n}: {line.strip()}")
     assert not offenders, "text-cleaning call in the pipeline:\n" + "\n".join(offenders)
+
+
+def test_no_export_carries_speaker_information():
+    """An old raw JSON (schema 1) still has speaker clusters; no export may show them."""
+    doc = make_doc()
+    for w in doc["words"]:
+        w["speaker"] = 3
+    for u in doc["utterances"]:
+        u["speaker"] = 3
+    doc["diarization"] = {"segments": [{"start": 0.0, "end": 9.0, "speaker": 3}]}
+
+    assert "SPEAKER" not in txt.render(doc) + srt.render(doc) + eaf.render(doc)
+    assert "speaker" not in csv.render(doc).splitlines()[0]
+    assert "speaker" not in json_verified.render(doc)
+    assert "SPEAKER" not in docx_document_xml(doc)
