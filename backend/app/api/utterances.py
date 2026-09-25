@@ -31,6 +31,16 @@ def _get(session: Session, utterance_id: uuid.UUID) -> Utterance:
     return utterance
 
 
+def _queue_google_sync(session: Session, utterance: Utterance) -> None:
+    """Debounced Google Doc refresh for this episode (no-op while the repo is off)."""
+    from ..google_repo import sync as google_sync
+    from ..models import Transcript
+
+    transcript = session.get(Transcript, utterance.transcript_id)
+    if transcript is not None:
+        google_sync.enqueue_after_edit(session, transcript.episode_id)
+
+
 def _log_edit(session: Session, utterance: Utterance, before: str | None,
               after: str | None, editor: str) -> None:
     """Append to the audit log. Never UPDATE or DELETE a row here (PLAN §8)."""
@@ -70,6 +80,7 @@ def patch_utterance(
     if "end_s" in patch and patch["end_s"] is not None:
         utterance.end_s = float(patch["end_s"])
 
+    _queue_google_sync(session, utterance)
     session.commit()
     return UtteranceOut.model_validate(utterance)
 
@@ -135,6 +146,7 @@ def split_utterance(
     utterance.end_s = float(head[-1].end_s or head[-1].start_s)
     utterance.text_asr = " ".join(w.text for w in head)
     session.add(tail_utterance)
+    _queue_google_sync(session, utterance)
     session.commit()
     return [UtteranceOut.model_validate(utterance),
             UtteranceOut.model_validate(tail_utterance)]
@@ -181,6 +193,7 @@ def merge_next(
                Utterance.i > nxt.i)
         .values(i=Utterance.i - 1)
     )
+    _queue_google_sync(session, utterance)
     session.commit()
     return UtteranceOut.model_validate(utterance)
 
@@ -203,5 +216,6 @@ def revert_utterance(
     utterance.text_verified = None
     utterance.verified_by = None
     utterance.verified_at = None
+    _queue_google_sync(session, utterance)
     session.commit()
     return UtteranceOut.model_validate(utterance)

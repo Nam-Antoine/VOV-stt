@@ -84,6 +84,18 @@ class Settings(BaseSettings):
     enable_scribe: bool = False
     elevenlabs_api_key: str = Field(default="", repr=False)
 
+    # --- Google Sheet + Docs repository (GOOGLE_REPO_PLAN) --------------------
+    #: Off until the owner has put credentials.json and token.json in place.
+    google_repo_enabled: bool = False
+    google_credentials_path: Path = Path("/data/google/credentials.json")
+    google_token_path: Path = Path("/data/google/token.json")
+    #: "readable" (punctuated, sentence case) or "verbatim" (the corpus text).
+    google_doc_layer: str = "readable"
+    google_folder_name: str = "Đàn bà 30+ Corpus"
+    google_sheet_name: str = "Đàn bà 30+ Corpus — Index"
+    #: An edit in the app reaches its Doc this many minutes later at most.
+    google_edit_debounce_min: int = 10
+
     # --- derived -----------------------------------------------------------
     def ensure_dirs(self) -> None:
         for d in (self.audio_dir, self.raw_dir, self.exports_dir):

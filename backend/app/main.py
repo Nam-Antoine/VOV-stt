@@ -21,6 +21,7 @@ from .api import (
     auth,
     episodes,
     exports,
+    google_repo,
     hotwords,
     jobs,
     transcripts,
@@ -29,6 +30,7 @@ from .api import (
 )
 from .config import settings
 from .db import engine
+from .google_repo.health import repo_health
 from .schemas import Health, Stats
 
 logging.basicConfig(
@@ -60,7 +62,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (auth, episodes, jobs, transcripts, utterances, hotwords, exports, users):
+for module in (auth, episodes, jobs, transcripts, utterances, hotwords, exports, users,
+               google_repo):
     app.include_router(module.router, prefix="/api")
 
 
@@ -101,6 +104,7 @@ def health() -> Health:
         worker_heartbeat_s=_worker_heartbeat_s(),
         version=__version__,
         readable_available=settings.punct_available(),
+        google_repo=repo_health(),
     )
 
 
