@@ -12,15 +12,13 @@ from sqlalchemy.orm import Session
 from .. import ingest, loader
 from ..config import settings
 from ..db import get_session
-from ..models import Episode, Job, Speaker, Transcript, Utterance, Word
+from ..models import Episode, Job, Transcript, Utterance, Word
 from ..schemas import (
     EpisodeDetail,
     EpisodeFromUrl,
     EpisodeListItem,
     EpisodeOut,
     JobOut,
-    SpeakerLabel,
-    SpeakerOut,
     TranscribeRequest,
 )
 from .deps import require_admin, require_editor
@@ -29,7 +27,7 @@ router = APIRouter(prefix="/episodes", tags=["episodes"])
 
 
 def _counts(session: Session, episode_ids: list[uuid.UUID]) -> dict:
-    """``{episode_id: (transcript_id, n_utterances, n_verified, speakers_pending)}``.
+    """``{episode_id: (transcript_id, n_utterances, n_verified)}``.
 
     Done as a single grouped query rather than per row: the Episodes page lists the
     whole backlog and N+1 counting over 129 episodes is a visible stall.
@@ -40,16 +38,15 @@ def _counts(session: Session, episode_ids: list[uuid.UUID]) -> dict:
         select(
             Transcript.episode_id,
             Transcript.id,
-            Transcript.speakers_pending,
             func.count(Utterance.id),
             func.count(Utterance.text_verified),
         )
         .select_from(Transcript)
         .outerjoin(Utterance, Utterance.transcript_id == Transcript.id)
         .where(Transcript.episode_id.in_(episode_ids), Transcript.is_current.is_(True))
-        .group_by(Transcript.episode_id, Transcript.id, Transcript.speakers_pending)
+        .group_by(Transcript.episode_id, Transcript.id)
     ).all()
-    return {r[0]: (r[1], int(r[3]), int(r[4]), bool(r[2])) for r in rows}
+    return {r[0]: (r[1], int(r[2]), int(r[3])) for r in rows}
 
 
 @router.get("", response_model=list[EpisodeListItem])
@@ -69,12 +66,11 @@ def list_episodes(
     counts = _counts(session, [e.id for e in episodes])
     out = []
     for e in episodes:
-        tid, total, verified, pending = counts.get(e.id, (None, 0, 0, False))
+        tid, total, verified = counts.get(e.id, (None, 0, 0))
         out.append(
             EpisodeListItem.model_validate(e).model_copy(
                 update={"current_transcript_id": tid,
-                        "n_utterances": total, "n_verified": verified,
-                        "speakers_pending": pending}
+                        "n_utterances": total, "n_verified": verified}
             )
         )
     return out
@@ -159,22 +155,12 @@ def get_episode(
             .where(Word.transcript_id == transcript.id)
         ) or 0)
 
-    speakers = [
-        SpeakerOut(cluster=int(c), label=label)
-        for c, label in session.execute(
-            select(Speaker.cluster, Speaker.label)
-            .where(Speaker.episode_id == episode.id)
-            .order_by(Speaker.cluster)
-        ).all()
-    ]
     return EpisodeDetail.model_validate(episode).model_copy(
         update={
             "current_transcript_id": transcript.id if transcript else None,
             "n_utterances": total,
             "n_verified": verified,
             "n_words": n_words,
-            "speakers": speakers,
-            "speakers_pending": bool(transcript and transcript.speakers_pending),
         }
     )
 
@@ -248,21 +234,3 @@ def delete_episode(
     session.delete(episode)
     session.commit()
     return {"ok": True, "raw_json_kept": True}
-
-
-@router.put("/{episode_id}/speakers/{cluster}", response_model=SpeakerLabel)
-def set_speaker_label(
-    episode_id: uuid.UUID,
-    cluster: int,
-    body: SpeakerLabel,
-    session: Session = Depends(get_session),
-    editor: str = Depends(require_editor),
-) -> SpeakerLabel:
-    """Rename one cluster for this episode (PLAN §9, §0.3 — free text, not identity)."""
-    speaker = session.get(Speaker, {"episode_id": episode_id, "cluster": cluster})
-    if speaker is None:
-        speaker = Speaker(episode_id=episode_id, cluster=cluster)
-        session.add(speaker)
-    speaker.label = body.label       # stored exactly as typed
-    session.commit()
-    return SpeakerLabel(label=speaker.label or "")
