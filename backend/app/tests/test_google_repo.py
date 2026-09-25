@@ -340,8 +340,8 @@ def test_enqueue_is_one_try_and_one_pending_job_per_episode(monkeypatch, enabled
 
 def test_sheet_header_exact():
     assert sheet.HEADER == [
-        "Episode ID", "Title", "Air date", "Duration", "Source URL", "Tier", "Status",
-        "Verified by", "Verified date", "Syllables",
+        "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
+        "Mức độ", "Trạng thái", "Người duyệt", "Ngày duyệt", "Số âm tiết",
     ]
     lowered = [h.lower() for h in sheet.HEADER]
     for banned in ("guest", "mc"):
@@ -353,7 +353,7 @@ def test_duration_stays_text_and_titles_escape_quotes():
     assert sheet.duration_text(None) == ""
     assert sheet.title_cell('A "b"', None) == 'A "b"'
     assert sheet.title_cell('A "b"', "X") == (
-        '=HYPERLINK("https://docs.google.com/document/d/X/edit", "A ""b""")')
+        '=HYPERLINK("https://docs.google.com/document/d/X/edit"; "A ""b""")')
 
 
 # --- auth -----------------------------------------------------------------------------

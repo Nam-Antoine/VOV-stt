@@ -25,9 +25,18 @@ log = logging.getLogger("google_repo")
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
 HEADER = [
-    "Episode ID", "Title", "Air date", "Duration", "Source URL", "Tier", "Status",
-    "Verified by", "Verified date", "Syllables",
+    "Mã tập", "Tên tập (mở bản chép lời)", "Ngày phát", "Thời lượng", "Link gốc (audio)",
+    "Mức độ", "Trạng thái", "Người duyệt", "Ngày duyệt", "Số âm tiết",
 ]
+
+TIER_LABEL = {"asr": "Máy chép", "partly verified": "Duyệt một phần", "verified": "Đã duyệt"}
+
+#: Same wording as the web app (web/src/labels.ts).
+STATUS_LABEL = {
+    "ingested": "Đã tải lên", "queued": "Đang chờ", "processing": "Đang xử lý",
+    "transcribed": "Đã chép lời", "verifying": "Đang duyệt", "verified": "Đã duyệt",
+    "failed": "Lỗi",
+}
 
 
 def ensure_sheet(session: Session, g: Google) -> str:
@@ -45,6 +54,12 @@ def ensure_sheet(session: Session, g: Google) -> str:
     tabs = call(g, g.sheets.spreadsheets().get(
         spreadsheetId=sheet_id, fields="sheets.properties.sheetId"))["sheets"]
     call(g, g.sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": [{
+        # Pinned, because formula argument separators depend on it: title_cell writes
+        # ";" as vi_VN expects, and a "," there shows #ERROR!.
+        "updateSpreadsheetProperties": {
+            "properties": {"locale": "vi_VN"}, "fields": "locale",
+        },
+    }, {
         "updateSheetProperties": {
             "properties": {"sheetId": tabs[0]["properties"]["sheetId"],
                            "gridProperties": {"frozenRowCount": 1}},
@@ -69,7 +84,7 @@ def duration_text(seconds) -> str:  # noqa: ANN001 — Decimal or float
 def title_cell(title: str, doc_id: str | None) -> str:
     if not doc_id:
         return title
-    return f'=HYPERLINK("{doc_url(doc_id)}", "{title.replace(chr(34), chr(34) * 2)}")'
+    return f'=HYPERLINK("{doc_url(doc_id)}"; "{title.replace(chr(34), chr(34) * 2)}")'
 
 
 def rows(session: Session) -> list[list]:
@@ -109,8 +124,8 @@ def rows(session: Session) -> list[list]:
             ep.air_date.isoformat() if ep.air_date else "",
             duration_text(ep.duration_s),
             ep.source_url or "",
-            tier,
-            ep.status,
+            TIER_LABEL[tier],
+            STATUS_LABEL.get(ep.status, ep.status),
             verified_by,
             verified_at.date().isoformat() if verified_at else "",
             doc.syllables if doc and doc.doc_id and doc.syllables is not None else "",
