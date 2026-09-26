@@ -106,6 +106,11 @@ export const Tag = (p: P) => (
     <circle cx="7.5" cy="7.5" r="1.25" fill="currentColor" stroke="none" />
   </Svg>
 )
+export const Pencil = (p: P) => (
+  <Svg {...p}>
+    <path d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4z" />
+  </Svg>
+)
 export const ArrowLeft = (p: P) => (
   <Svg {...p}>
     <path d="M19 12H5m0 0l6-6m-6 6l6 6" />

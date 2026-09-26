@@ -16,7 +16,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
 import ExportMenu from '../components/ExportMenu'
-import { ArrowLeft, Spinner } from '../components/Icons'
+import { ArrowLeft, Pencil, Spinner } from '../components/Icons'
 import Shortcuts from '../components/Shortcuts'
 import TranscriptEditor from '../components/TranscriptEditor'
 import WaveformPlayer, { type WaveformPlayerHandle } from '../components/WaveformPlayer'
@@ -209,7 +209,7 @@ export default function Episode() {
           Quay lại
         </Link>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
-          <h1 className="title min-w-0 break-words">{ep.title || ep.slug}</h1>
+          <EpisodeTitle id={ep.id} title={ep.title || ep.slug} />
           <StatusChip status={ep.status} />
           {utterances.length > 0 && (
             <span className="flex w-full items-center gap-3 text-sm text-muted sm:ml-auto sm:w-auto">
@@ -344,5 +344,73 @@ export default function Episode() {
         </>
       )}
     </section>
+  )
+}
+
+/** The page title, with a pencil to rename the episode in place (Enter saves, Esc cancels). */
+function EpisodeTitle({ id, title }: { id: string; title: string }) {
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState<string | null>(null)
+  const rename = useMutation({
+    mutationFn: (next: string) => api.renameEpisode(id, next),
+    onSuccess: () => {
+      setDraft(null)
+      queryClient.invalidateQueries({ queryKey: ['episode', id] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
+  })
+
+  if (draft === null) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <h1 className="title min-w-0 break-words">{title}</h1>
+        <button
+          onClick={() => setDraft(title)}
+          className="btn-ghost btn-sm shrink-0"
+          title="Đổi tên tập"
+          aria-label="Đổi tên tập"
+        >
+          <Pencil />
+        </button>
+      </span>
+    )
+  }
+
+  const save = () => {
+    const next = draft.trim()
+    if (!next || next === title) setDraft(null)
+    else rename.mutate(next)
+  }
+  return (
+    <form
+      className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1"
+      onSubmit={(e) => {
+        e.preventDefault()
+        save()
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={300}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setDraft(null)
+        }}
+        className="field min-w-0 flex-1 text-base"
+        aria-label="Tên tập"
+      />
+      <button type="submit" className="btn-primary btn-sm" disabled={rename.isPending}>
+        {rename.isPending ? <Spinner className="h-3.5 w-3.5" /> : 'Lưu'}
+      </button>
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setDraft(null)}>
+        Huỷ
+      </button>
+      {rename.isError && (
+        <span className="w-full text-xs text-rose-600">
+          {rename.error instanceof ApiError ? rename.error.detail : 'Không đổi được tên'}
+        </span>
+      )}
+    </form>
   )
 }

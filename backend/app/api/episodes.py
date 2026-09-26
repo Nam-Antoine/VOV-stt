@@ -18,6 +18,7 @@ from ..schemas import (
     EpisodeFromUrl,
     EpisodeListItem,
     EpisodeOut,
+    EpisodePatch,
     JobOut,
     TranscribeRequest,
 )
@@ -163,6 +164,30 @@ def get_episode(
             "n_words": n_words,
         }
     )
+
+
+@router.patch("/{episode_id}", response_model=EpisodeOut)
+def rename_episode(
+    episode_id: uuid.UUID,
+    body: EpisodePatch,
+    session: Session = Depends(get_session),
+    editor: str = Depends(require_editor),
+) -> EpisodeOut:
+    """Rename an episode. Exports pick the new title up at once; its Google Doc and the
+    Sheet row are refreshed by a queued sync (no-op while the Google repo is off)."""
+    from ..google_repo import sync as google_sync
+
+    episode = session.get(Episode, episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="không tìm thấy tập")
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="tên tập không được để trống")
+    if title != episode.title:
+        episode.title = title
+        google_sync.enqueue(session, episode.id)
+    session.commit()
+    return EpisodeOut.model_validate(episode)
 
 
 @router.post("/{episode_id}/transcribe", response_model=JobOut)

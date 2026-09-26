@@ -100,6 +100,8 @@ export const api = {
   },
   episodeFromUrl: (payload: { url: string; title?: string; air_date?: string }) =>
     request<Episode>('/episodes/from-url', { method: 'POST', body: body(payload) }),
+  renameEpisode: (id: string, title: string) =>
+    request<Episode>(`/episodes/${id}`, { method: 'PATCH', body: body({ title }) }),
   transcribe: (id: string, params: Record<string, unknown> = {}) =>
     request<Job>(`/episodes/${id}/transcribe`, { method: 'POST', body: body(params) }),
   exportEpisode: (id: string) =>

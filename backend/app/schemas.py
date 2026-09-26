@@ -86,6 +86,12 @@ class EpisodeFromUrl(BaseModel):
     air_date: date | None = None
 
 
+class EpisodePatch(BaseModel):
+    """PATCH /episodes/{id}: rename. The slug stays — it is the episode's identity."""
+
+    title: str = Field(max_length=300)
+
+
 class EpisodeOut(ORMModel, EpisodeBase):
     id: uuid.UUID
     audio_path: str | None = None
