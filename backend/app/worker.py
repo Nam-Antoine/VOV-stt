@@ -353,6 +353,12 @@ def run_once() -> bool:
             log.info("job %s done", job["id"])
         except Exception as exc:  # noqa: BLE001 — a failed job must not kill the worker
             log.exception("job %s failed", job["id"])
+            # The handler may have left the session mid-flush (e.g. an IntegrityError
+            # from loader.load_transcript): without this, the status update below
+            # raises PendingRollbackError, that escapes run_once() unhandled, and the
+            # job is left stuck in 'running' forever — invisible to both CLAIM_SQL
+            # (which only claims 'queued') and to a retry (attempts already bumped).
+            session.rollback()
             exhausted = job["attempts"] >= job["max_attempts"]
             sql = FINISH_SQL if exhausted else REQUEUE_SQL
             params = {"id": job["id"], "error": f"{type(exc).__name__}: {exc}",
@@ -360,6 +366,15 @@ def run_once() -> bool:
             if exhausted:
                 params["status"] = "failed"
             session.execute(sql, params)
+            # Otherwise a transcribe failure leaves the episode showing "processing"
+            # forever: no retry button on the Episodes page, and nothing says the job
+            # actually stopped (PLAN §9 status column).
+            if job["kind"] == "transcribe" and job.get("episode_id"):
+                from .models import Episode
+
+                episode = session.get(Episode, job["episode_id"])
+                if episode is not None:
+                    episode.status = "failed" if exhausted else "queued"
     return True
 
 

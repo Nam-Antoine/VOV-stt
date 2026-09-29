@@ -121,8 +121,8 @@ export default function Hotwords() {
 
       <HotwordSuggestions canAdd={isAdmin} />
 
-      <div className="overflow-hidden rounded-xl border border-line bg-surface">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+        <table className="w-full min-w-[32rem] text-sm">
           <thead className="bg-sunken text-left text-xs uppercase text-muted">
             <tr>
               <th className="px-3 py-2">Từ khóa</th>

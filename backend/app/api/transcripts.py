@@ -169,7 +169,7 @@ def stream_audio(
         length = int(raw_end or 0)
         start = max(0, size - length)
         end = size - 1
-    if start >= size:
+    if start >= size or end < start:
         raise HTTPException(status_code=416, detail="vùng yêu cầu vượt quá cuối file")
     end = min(end, size - 1)
 

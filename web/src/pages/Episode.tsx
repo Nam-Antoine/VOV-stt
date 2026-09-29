@@ -75,12 +75,28 @@ export default function Episode() {
     retry: false,
   })
 
+  // A failed save must not silently drop what the verifier typed. saveError holds the
+  // exact text that failed to save, so TranscriptEditor can reopen that block with it
+  // (instead of the useEffect that resets the draft back to the server's old text on
+  // close, which is what used to lose it) and show why.
+  const [saveError, setSaveError] = useState<
+    { utteranceId: string; text: string; message: string } | null
+  >(null)
   const saveUtterance = useMutation({
     mutationFn: ({ utteranceId, text }: { utteranceId: string; text: string }) =>
       api.patchUtterance(utteranceId, { text_verified: text }),
-    onSuccess: () => {
+    onSuccess: (_data, { utteranceId }) => {
+      setSaveError((e) => (e?.utteranceId === utteranceId ? null : e))
       queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] })
       queryClient.invalidateQueries({ queryKey: ['episode', id] })
+      // n_verified on the Episodes list card is otherwise stale for its 30s staleTime.
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
+    onError: (err, { utteranceId, text }) => {
+      setSaveError({
+        utteranceId, text,
+        message: err instanceof ApiError ? err.detail : 'Không lưu được — hãy thử lại.',
+      })
     },
   })
 
@@ -108,7 +124,10 @@ export default function Episode() {
 
   const revert = useMutation({
     mutationFn: (utteranceId: string) => api.revertUtterance(utteranceId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
   })
 
   const transcribe = useMutation({
@@ -332,6 +351,7 @@ export default function Episode() {
               onWordClick={(w) => seekTo(w.start_s)}
               onSave={(utteranceId, text) => saveUtterance.mutate({ utteranceId, text })}
               onRevert={(utteranceId) => revert.mutate(utteranceId)}
+              saveError={saveError}
               confThreshold={confThreshold}
               activeIndex={activeIndex}
               onActivate={setActiveIndex}

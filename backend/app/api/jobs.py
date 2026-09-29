@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_session
-from ..models import Job
+from ..models import Episode, Job
 from ..schemas import JobLog, JobOut
 from .deps import require_editor
 
@@ -58,6 +58,12 @@ def retry_job(
     # Give the retry a fresh budget; otherwise a job that already burned its attempts
     # is re-queued only to be failed again on the first claim.
     job.attempts = 0
+    # A failed transcribe leaves the episode showing "failed"/"processing" (worker.py);
+    # put it back to "queued" so the Episodes page reflects that it's waiting again.
+    if job.kind == "transcribe" and job.episode_id:
+        episode = session.get(Episode, job.episode_id)
+        if episode is not None:
+            episode.status = "queued"
     session.commit()
     return _out(job)
 

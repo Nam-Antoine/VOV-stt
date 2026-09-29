@@ -33,6 +33,9 @@ export interface TranscriptEditorProps {
   /** Show the punctuated reading layer where it is up to date. Editing is always on
    *  the verbatim text. */
   readable?: boolean
+  /** The most recent save that failed, and the exact text that failed to save — so
+   *  that utterance's block reopens with it instead of losing it. */
+  saveError?: { utteranceId: string; text: string; message: string } | null
 }
 
 function timestamp(seconds: number) {
@@ -53,6 +56,7 @@ function UtteranceBlock({
   saving,
   readable,
   onActivate,
+  saveError,
 }: {
   utterance: Utterance
   words: Word[]
@@ -65,17 +69,32 @@ function UtteranceBlock({
   saving: boolean
   readable: boolean
   onActivate?: () => void
+  /** Already filtered to this utterance by the caller. */
+  saveError?: { text: string; message: string } | null
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(() => displayText(utterance))
   const box = useRef<HTMLTextAreaElement>(null)
   const article = useRef<HTMLElement>(null)
+  // Esc sets this just before closing, so the blur it also triggers does not re-save
+  // the draft it just told the box to discard (Chrome fires blur when the focused
+  // element unmounts).
+  const cancelling = useRef(false)
   const saved = displayText(utterance)
   const dirty = editing && draft !== saved
 
   useEffect(() => {
     if (!editing) setDraft(saved)
   }, [saved, editing])
+
+  // A failed save's exact text takes priority over the close-on-blur reset above: put
+  // it back in the box and reopen so nothing typed is lost.
+  useEffect(() => {
+    if (saveError) {
+      setDraft(saveError.text)
+      setEditing(true)
+    }
+  }, [saveError])
 
   useEffect(() => {
     if (editing) box.current?.focus()
@@ -145,12 +164,17 @@ function UtteranceBlock({
               onChange={(e) => setDraft(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               onBlur={() => {
+                if (cancelling.current) {
+                  cancelling.current = false
+                  return
+                }
                 // Save exactly what is in the box. No trim(), no whitespace collapsing.
                 if (draft !== saved) onSave(utterance.id, draft)
                 setEditing(false)
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
+                  cancelling.current = true
                   setDraft(saved)
                   setEditing(false)
                 }
@@ -158,8 +182,17 @@ function UtteranceBlock({
                   e.currentTarget.blur()
                 }
               }}
-              className="w-full max-w-measure resize-y rounded-md border border-accent-strong/60 bg-canvas p-3 font-transcript text-utterance text-ink shadow-inner focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/20"
+              className={`w-full max-w-measure resize-y rounded-md border bg-canvas p-3 font-transcript text-utterance text-ink shadow-inner focus:outline-none focus:ring-2 ${
+                saveError
+                  ? 'border-rose-400 focus:border-rose-400 focus:ring-rose-400/20'
+                  : 'border-accent-strong/60 focus:border-accent-strong focus:ring-accent-strong/20'
+              }`}
             />
+            {saveError && (
+              <p className="mt-1.5 text-xs font-medium text-rose-600">
+                {saveError.message} Văn bản vẫn còn trong ô — rời khỏi ô để thử lưu lại.
+              </p>
+            )}
             {readable && (
               <p className="mt-1.5 text-xs text-faint">
                 Đang sửa văn bản nguyên văn — dấu câu sẽ được thêm lại tự động sau khi lưu.
@@ -216,12 +249,11 @@ function UtteranceBlock({
             Sửa
           </button>
         )}
-        {verified && onRevert && (
+        {!editing && verified && onRevert && (
           <button
             onClick={(e) => {
               e.stopPropagation()
               onRevert(utterance.id)
-              setEditing(false)
             }}
             className="btn-ghost btn-sm hover:text-[#b5402a]"
             title="Khôi phục văn bản gốc của máy"
@@ -246,6 +278,7 @@ export default function TranscriptEditor({
   followPlayhead = false,
   savingId = null,
   readable = false,
+  saveError = null,
 }: TranscriptEditorProps) {
   // Bucket words by utterance once, by time span: the API sends both lists flat and a
   // per-utterance filter would be O(utterances x words) on a few thousand words.
@@ -277,6 +310,7 @@ export default function TranscriptEditor({
           saving={savingId === u.id}
           readable={readable}
           onActivate={() => onActivate?.(index)}
+          saveError={saveError?.utteranceId === u.id ? saveError : null}
         />
       ))}
       {utterances.length === 0 && (
