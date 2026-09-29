@@ -202,7 +202,7 @@ export default function Episode() {
 
       <header className="pb-2">
         <Link
-          to="/episodes"
+          to={`/projects/${ep.project_id}`}
           className="inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -210,6 +210,7 @@ export default function Episode() {
         </Link>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
           <EpisodeTitle id={ep.id} title={ep.title || ep.slug} />
+          <ProjectMove episodeId={ep.id} projectId={ep.project_id} />
           <StatusChip status={ep.status} />
           {utterances.length > 0 && (
             <span className="flex w-full items-center gap-3 text-sm text-muted sm:ml-auto sm:w-auto">
@@ -344,6 +345,39 @@ export default function Episode() {
         </>
       )}
     </section>
+  )
+}
+
+/** A small "move to another project" select, next to the title. */
+function ProjectMove({ episodeId, projectId }: { episodeId: string; projectId: string }) {
+  const queryClient = useQueryClient()
+  const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.listProjects() })
+  const move = useMutation({
+    mutationFn: (next: string) => api.moveEpisode(episodeId, next),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['episode', episodeId] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+  const rows = projects.data ?? []
+  if (rows.length < 2) return null // nothing to move to
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-muted">
+      Dự án
+      <select
+        value={projectId}
+        disabled={move.isPending}
+        onChange={(e) => e.target.value !== projectId && move.mutate(e.target.value)}
+        className="field w-auto py-1 text-xs"
+      >
+        {rows.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 

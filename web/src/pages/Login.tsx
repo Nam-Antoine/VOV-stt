@@ -30,7 +30,7 @@ export default function Login() {
         <div className="mb-6 text-center">
           <img src="/favicon.svg" alt="" width={48} height={48} className="mx-auto h-12 w-12" />
           <h1 className="title mt-3">Kho ngữ liệu VN-STT</h1>
-          <p className="mt-1 text-sm text-muted">VOV2 · Đàn bà 30+</p>
+          <p className="mt-1 text-sm text-muted">Kho ngữ liệu chép lời nguyên văn</p>
         </div>
 
         <form

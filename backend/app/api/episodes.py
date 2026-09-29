@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from .. import ingest, loader
 from ..config import settings
 from ..db import get_session
-from ..models import Episode, Job, Transcript, Utterance, Word
+from ..models import Episode, Job, Project, Transcript, Utterance, Word
 from ..schemas import (
     EpisodeDetail,
     EpisodeFromUrl,
@@ -54,10 +54,13 @@ def _counts(session: Session, episode_ids: list[uuid.UUID]) -> dict:
 def list_episodes(
     status: str | None = Query(None, description="filter by episode status"),
     q: str | None = Query(None, description="substring match on title/slug"),
+    project_id: uuid.UUID | None = Query(None, description="filter by project"),
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> list[EpisodeListItem]:
     stmt = select(Episode).order_by(Episode.created_at.desc())
+    if project_id:
+        stmt = stmt.where(Episode.project_id == project_id)
     if status:
         stmt = stmt.where(Episode.status == status)
     if q:
@@ -80,17 +83,21 @@ def list_episodes(
 @router.post("/upload", response_model=EpisodeOut)
 def upload_episode(
     file: UploadFile,
+    project_id: uuid.UUID | None = Query(None, description="default project when omitted"),
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> EpisodeOut:
-    """Stream to ``AUDIO_DIR``, sha256 it, create the episode.
+    """Stream to ``AUDIO_DIR``, sha256 it, create the episode under ``project_id``.
 
     Transcription is **not** started here: it is a queued job, so the upload returns as
     soon as the bytes are on disk instead of holding the connection for minutes.
     """
+    if project_id is not None and session.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="không tìm thấy dự án")
     try:
         episode, created = ingest.create_episode(
-            session, filename=file.filename or "episode.mp3", fileobj=file.file
+            session, filename=file.filename or "episode.mp3", fileobj=file.file,
+            project_id=project_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -118,6 +125,8 @@ def episode_from_url(
     import urllib.request
     from urllib.parse import unquote, urlparse
 
+    if body.project_id is not None and session.get(Project, body.project_id) is None:
+        raise HTTPException(status_code=404, detail="không tìm thấy dự án")
     name = Path(unquote(urlparse(body.url).path)).name or "episode.mp3"
     try:
         with urllib.request.urlopen(body.url, timeout=120) as response:  # noqa: S310
@@ -128,6 +137,7 @@ def episode_from_url(
                 title=body.title,
                 source_url=body.url,
                 air_date=body.air_date,
+                project_id=body.project_id,
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -173,19 +183,39 @@ def rename_episode(
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> EpisodeOut:
-    """Rename an episode. Exports pick the new title up at once; its Google Doc and the
-    Sheet row are refreshed by a queued sync (no-op while the Google repo is off)."""
+    """Rename an episode and/or move it to another project.
+
+    Either changes its Google Doc and Sheet row through a queued sync (no-op while the
+    Google repo is off); a move also queues a sync of the *old* project, so the row
+    leaves that project's Sheet instead of lingering until its next full sync.
+    """
     from ..google_repo import sync as google_sync
 
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
-    title = body.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="tên tập không được để trống")
-    if title != episode.title:
-        episode.title = title
+
+    changed = False
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="tên tập không được để trống")
+        if title != episode.title:
+            episode.title = title
+            changed = True
+
+    old_project_id = None
+    if body.project_id is not None and body.project_id != episode.project_id:
+        if session.get(Project, body.project_id) is None:
+            raise HTTPException(status_code=404, detail="không tìm thấy dự án")
+        old_project_id = episode.project_id
+        episode.project_id = body.project_id
+        changed = True
+
+    if changed:
         google_sync.enqueue(session, episode.id)
+    if old_project_id is not None:
+        google_sync.enqueue_project(session, old_project_id)
     session.commit()
     return EpisodeOut.model_validate(episode)
 

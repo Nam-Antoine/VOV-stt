@@ -11,8 +11,7 @@ episode detectable, and what ties a transcript back to exact bytes (PLAN §5 ``s
 from __future__ import annotations
 
 import hashlib
-import re
-import unicodedata
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -21,35 +20,13 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .models import Episode
+from .slugs import slugify, unique_slug
 
 #: Suffixes we accept. ffmpeg handles far more, but an unexpected upload is much more
 #: likely to be a mistake than an exotic container.
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".flac", ".mp4", ".webm"}
 
 CHUNK = 1 << 20
-
-
-def slugify(value: str) -> str:
-    """ASCII slug for filenames and URLs only.
-
-    This strips diacritics, which would be a verbatim violation applied to transcript
-    text (PLAN §0.1). It is applied to **identifiers**, never to anything a verifier
-    reads as content — the episode's real title is stored unchanged in ``title``.
-    """
-    decomposed = unicodedata.normalize("NFKD", value)
-    ascii_only = "".join(c for c in decomposed if not unicodedata.combining(c))
-    ascii_only = ascii_only.replace("đ", "d").replace("Đ", "D")
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_only).strip("-").lower()
-    return slug or "episode"
-
-
-def unique_slug(session: Session, base: str) -> str:
-    """``base``, or ``base-2``, ``base-3``… — ``episodes.slug`` is unique."""
-    slug, n = base, 1
-    while session.scalar(select(Episode.id).where(Episode.slug == slug)) is not None:
-        n += 1
-        slug = f"{base}-{n}"
-    return slug
 
 
 def store_stream(fileobj, dest: Path) -> str:
@@ -99,12 +76,16 @@ def create_episode(
     title: str | None = None,
     source_url: str | None = None,
     air_date: date | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> tuple[Episode, bool]:
-    """Store the audio and create the episode row.
+    """Store the audio and create the episode row, filed under ``project_id``.
 
     Returns ``(episode, created)``. When the same bytes are already ingested the
     existing episode is returned with ``created=False`` rather than a duplicate row —
-    re-uploading the same file is a normal operator mistake, not an error.
+    re-uploading the same file is a normal operator mistake, not an error. That existing
+    episode may belong to a different project than ``project_id``: the caller decides
+    whether that is worth telling the operator (it already does — see the Episodes page
+    "repeats" banner).
     """
     stem = Path(filename).stem or "episode"
     suffix = Path(filename).suffix.lower()
@@ -115,7 +96,7 @@ def create_episode(
         )
 
     settings.ensure_dirs()
-    staged = settings.audio_dir / f".incoming-{slugify(stem)}{suffix}"
+    staged = settings.audio_dir / f".incoming-{slugify(stem, fallback='episode')}{suffix}"
     sha256 = store_stream(fileobj, staged)
 
     existing = find_by_sha256(session, sha256)
@@ -123,12 +104,18 @@ def create_episode(
         staged.unlink(missing_ok=True)
         return existing, False
 
-    slug = unique_slug(session, slugify(stem))
+    slug = unique_slug(session, Episode.slug, slugify(stem, fallback="episode"))
     final = settings.audio_dir / f"{slug}{suffix}"
     staged.replace(final)
 
+    if project_id is None:
+        from .projects import default_project
+
+        project_id = default_project(session).id
+
     episode = Episode(
         slug=slug,
+        project_id=project_id,
         title=title or stem,
         source_url=source_url,
         air_date=air_date,

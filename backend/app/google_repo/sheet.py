@@ -14,9 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import loader
-from ..config import settings
-from ..models import Episode, EpisodeGoogleDoc, Utterance
-from . import state
+from ..models import Episode, EpisodeGoogleDoc, Project, Utterance
 from .client import Google, call
 from .docs import doc_url, ensure_folder
 
@@ -37,18 +35,22 @@ STATUS_LABEL = {
 }
 
 
-def ensure_sheet(session: Session, g: Google) -> str:
-    """The index Sheet's ID, creating it in the folder (header row frozen) on first use."""
-    sheet_id = state.get(session, state.SHEET_ID)
-    if sheet_id:
-        return sheet_id
-    folder_id = ensure_folder(session, g)
+def sheet_name(project: Project) -> str:
+    return f"{project.name} Corpus — Index"
+
+
+def ensure_sheet(session: Session, g: Google, project: Project) -> str:
+    """This project's index Sheet ID, creating it in its folder on first use."""
+    if project.google_sheet_id:
+        return project.google_sheet_id
+    folder_id = ensure_folder(session, g, project)
     sheet_id = call(g, g.drive.files().create(
-        body={"name": settings.google_sheet_name, "mimeType": SHEET_MIME,
+        body={"name": sheet_name(project), "mimeType": SHEET_MIME,
               "parents": [folder_id]},
         fields="id",
     ))["id"]
-    state.put(session, state.SHEET_ID, sheet_id)
+    project.google_sheet_id = sheet_id
+    session.flush()
     tabs = call(g, g.sheets.spreadsheets().get(
         spreadsheetId=sheet_id, fields="sheets.properties.sheetId"))["sheets"]
     call(g, g.sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": [{
@@ -64,7 +66,7 @@ def ensure_sheet(session: Session, g: Google) -> str:
             "fields": "gridProperties.frozenRowCount",
         },
     }]}))
-    log.info("google: created sheet %r", settings.google_sheet_name)
+    log.info("google: created sheet %r for project %r", sheet_name(project), project.slug)
     return sheet_id
 
 
@@ -85,8 +87,8 @@ def title_cell(title: str, doc_id: str | None) -> str:
     return f'=HYPERLINK("{doc_url(doc_id)}"; "{title.replace(chr(34), chr(34) * 2)}")'
 
 
-def rows(session: Session) -> list[list]:
-    """Every episode, oldest air date first, in :data:`HEADER` order."""
+def rows(session: Session, project: Project) -> list[list]:
+    """This project's episodes, oldest air date first, in :data:`HEADER` order."""
     docs = {
         d.episode_id: d
         for d in session.scalars(
@@ -94,7 +96,8 @@ def rows(session: Session) -> list[list]:
     }
     out: list[list] = []
     episodes = session.scalars(
-        select(Episode).order_by(Episode.air_date.asc().nulls_last(), Episode.slug)
+        select(Episode).where(Episode.project_id == project.id)
+        .order_by(Episode.air_date.asc().nulls_last(), Episode.slug)
     )
     for ep in episodes:
         doc = docs.get(ep.id)
@@ -118,8 +121,8 @@ def rows(session: Session) -> list[list]:
     return out
 
 
-def rebuild_sheet(session: Session, g: Google) -> bool:
-    """Rewrite the Sheet from the DB. Returns False (no write) when nothing changed.
+def rebuild_sheet(session: Session, g: Google, project: Project) -> bool:
+    """Rewrite this project's Sheet from the DB. False (no write) when nothing changed.
 
     A Sheet deleted in Drive (404) is recreated once.
     """
@@ -128,23 +131,23 @@ def rebuild_sheet(session: Session, g: Google) -> bool:
     from .client import status_of
 
     try:
-        return _rebuild(session, g)
+        return _rebuild(session, g, project)
     except HttpError as exc:
         if status_of(exc) != 404:
             raise
         log.warning("google: the index Sheet is gone (deleted in Drive?); recreating it")
-        state.put(session, state.SHEET_ID, None)
-        state.put(session, state.SHEET_SHA256, None)
-        return _rebuild(session, g)
+        project.google_sheet_id = None
+        project.google_sheet_sha256 = None
+        return _rebuild(session, g, project)
 
 
-def _rebuild(session: Session, g: Google) -> bool:
-    sheet_id = ensure_sheet(session, g)
-    values = [HEADER, *rows(session)]
+def _rebuild(session: Session, g: Google, project: Project) -> bool:
+    sheet_id = ensure_sheet(session, g, project)
+    values = [HEADER, *rows(session, project)]
     digest = hashlib.sha256(
         json.dumps(values, ensure_ascii=False, default=str).encode("utf-8")
     ).hexdigest()
-    if state.get(session, state.SHEET_SHA256) == digest:
+    if project.google_sheet_sha256 == digest:
         return False
     call(g, g.sheets.spreadsheets().values().clear(spreadsheetId=sheet_id, range="A:Z",
                                                    body={}))
@@ -152,6 +155,7 @@ def _rebuild(session: Session, g: Google) -> bool:
         spreadsheetId=sheet_id, range="A1", valueInputOption="USER_ENTERED",
         body={"values": values},
     ))
-    state.put(session, state.SHEET_SHA256, digest)
-    log.info("google: sheet rebuilt, %d rows", len(values) - 1)
+    project.google_sheet_sha256 = digest
+    session.flush()
+    log.info("google: sheet rebuilt for project %r, %d rows", project.slug, len(values) - 1)
     return True

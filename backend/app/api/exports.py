@@ -227,6 +227,7 @@ def corpus_zip(
 @router.get("/exports/all.zip")
 def all_readable_zip(
     fmt: str = Query("readable.docx", pattern=r"^readable\.(docx|pdf|txt)$"),
+    project_id: uuid.UUID | None = Query(None, description="limit to one project"),
     session: Session = Depends(get_session),
     editor: str = Depends(require_editor),
 ) -> StreamingResponse:
@@ -241,8 +242,11 @@ def all_readable_zip(
     buf = io.BytesIO()
     skipped: list[str] = []
     used: set[str] = set()
+    stmt = select(Episode).order_by(Episode.slug)
+    if project_id is not None:
+        stmt = stmt.where(Episode.project_id == project_id)
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
-        for episode in session.scalars(select(Episode).order_by(Episode.slug)):
+        for episode in session.scalars(stmt):
             try:
                 _, body = _readable(session, episode.id, fmt)
             except HTTPException as exc:

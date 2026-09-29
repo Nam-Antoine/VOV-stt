@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +25,7 @@ from .api import (
     google_repo,
     hotwords,
     jobs,
+    projects,
     transcripts,
     users,
     utterances,
@@ -63,7 +65,7 @@ app.add_middleware(
 )
 
 for module in (auth, episodes, jobs, transcripts, utterances, hotwords, exports, users,
-               google_repo):
+               google_repo, projects):
     app.include_router(module.router, prefix="/api")
 
 
@@ -128,35 +130,51 @@ def _worker_heartbeat_s() -> float | None:
 
 
 @app.get("/api/stats", response_model=Stats, tags=["ops"])
-def stats() -> Stats:
-    """Episodes by status, hours transcribed/verified, mean confidence (PLAN §9)."""
+def stats(project_id: uuid.UUID | None = None) -> Stats:
+    """Episodes by status, hours transcribed/verified, mean confidence (PLAN §9).
+
+    Scoped to ``project_id`` when given — the sidebar card reads the project someone is
+    actually working in, not the whole corpus across every programme.
+    """
     from sqlalchemy import func, select
 
     from .db import SessionLocal
     from .models import Episode, Transcript, Utterance, Word
 
     with SessionLocal() as session:
+        episode_scope = select(Episode.id)
+        if project_id is not None:
+            episode_scope = episode_scope.where(Episode.project_id == project_id)
+
+        status_stmt = select(Episode.status, func.count()).group_by(Episode.status)
+        if project_id is not None:
+            status_stmt = status_stmt.where(Episode.project_id == project_id)
         by_status = {
-            str(status): int(n)
-            for status, n in session.execute(
-                select(Episode.status, func.count()).group_by(Episode.status)
-            ).all()
+            str(status): int(n) for status, n in session.execute(status_stmt).all()
         }
 
         # Hours are measured on episodes that actually have a current transcript, not on
         # everything ingested — otherwise a queued backlog reads as finished work.
         transcribed_s = session.scalar(
             select(func.coalesce(func.sum(Episode.duration_s), 0))
-            .where(Episode.id.in_(
+            .where(Episode.id.in_(episode_scope), Episode.id.in_(
                 select(Transcript.episode_id).where(Transcript.is_current.is_(True))
             ))
         ) or 0
 
-        verified_s = session.scalar(
-            select(func.coalesce(
-                func.sum(Utterance.end_s - Utterance.start_s), 0
-            )).where(Utterance.text_verified.is_not(None))
-        ) or 0
+        verified_stmt = (
+            select(func.coalesce(func.sum(Utterance.end_s - Utterance.start_s), 0))
+            .where(Utterance.text_verified.is_not(None))
+        )
+        if project_id is not None:
+            verified_stmt = (
+                select(func.coalesce(func.sum(Utterance.end_s - Utterance.start_s), 0))
+                .select_from(Utterance)
+                .join(Transcript, Transcript.id == Utterance.transcript_id)
+                .where(Utterance.text_verified.is_not(None),
+                      Transcript.episode_id.in_(episode_scope))
+            )
+        verified_s = session.scalar(verified_stmt) or 0
 
         mean_conf = session.scalar(select(func.avg(Word.conf)))
 
