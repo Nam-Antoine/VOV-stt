@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     google_doc_layer: str = "readable"
     #: An edit in the app reaches its Doc this many minutes later at most.
     google_edit_debounce_min: int = 10
+    #: Delete an episode's local audio once its Google Doc holds the current text
+    #: (app/purge_audio.py). The deliverable is text; audio is ~120 MB per hour.
+    #: false = the original flow: audio is kept for playback and re-transcription.
+    purge_audio_after_sync: bool = False
     #: Comma-separated e-mail addresses granted Editor on every project folder as it is
     #: created (memory: the corpus owner must always be Editor). Kept out of the repo —
     #: set only in .env. See google_repo/docs.py:share_editors.

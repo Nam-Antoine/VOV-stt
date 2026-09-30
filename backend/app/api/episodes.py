@@ -231,6 +231,10 @@ def enqueue_transcribe(
     episode = session.get(Episode, episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="không tìm thấy tập")
+    if not episode.audio_path:
+        # Purged after its Google Doc synced (app/purge_audio.py): nothing to decode.
+        raise HTTPException(status_code=409,
+                            detail="âm thanh của tập đã được xoá; không thể chép lời lại")
 
     params = (body.model_dump(exclude_none=True) if body else {})
     job = Job(episode_id=episode.id, kind="transcribe", status="queued",

@@ -58,6 +58,8 @@ export default function Episode() {
   })
 
   const transcriptId = episode.data?.current_transcript_id ?? null
+  // Null once the audio was deleted after its Google Doc synced (app/purge_audio.py).
+  const hasAudio = !!episode.data?.audio_path
 
   const transcript = useQuery({
     queryKey: ['transcript', transcriptId],
@@ -70,7 +72,7 @@ export default function Episode() {
   const peaks = useQuery({
     queryKey: ['peaks', transcriptId],
     queryFn: () => api.getPeaks(transcriptId!),
-    enabled: !!transcriptId,
+    enabled: !!transcriptId && hasAudio,
     staleTime: Infinity,
     retry: false,
   })
@@ -268,7 +270,12 @@ export default function Episode() {
         <>
           {/* Clears the sticky two-row header below lg; on desktop the nav is a sidebar. */}
           <div className="sticky top-[5.875rem] z-20 -mx-1 bg-canvas/90 px-1 py-1 backdrop-blur lg:top-0">
-            {peaks.isPending ? (
+            {!hasAudio ? (
+              <div className="card p-3 text-sm text-muted">
+                Đã xoá âm thanh của tập này để tiết kiệm dung lượng. Bản chép lời vẫn giữ
+                nguyên (và có trong Google Doc), nhưng không nghe lại được.
+              </div>
+            ) : peaks.isPending ? (
               <div className="card p-3">
                 <div className="skeleton h-[72px] w-full" />
                 <div className="mt-2 h-9" />

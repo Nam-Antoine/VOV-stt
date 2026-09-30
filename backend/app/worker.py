@@ -9,8 +9,14 @@ would run two episodes concurrently and OOM the box.
 Claim query (PLAN §8)::
 
     UPDATE jobs SET status='running', locked_at=now() WHERE id = (
-      SELECT id FROM jobs WHERE status='queued' ORDER BY created_at
+      SELECT id FROM jobs WHERE status='queued'
+       ORDER BY (kind = 'transcribe'), created_at
       FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *;
+
+Short jobs (``google_sync``, ``export``: seconds) go before transcriptions (minutes).
+Otherwise a large harvest leaves every episode's Doc — and, with
+``PURGE_AUDIO_AFTER_SYNC``, the audio purge that frees its disk — behind hundreds of
+queued transcriptions.
 
 T1 status: the loop and the claim query are real; :func:`handle_transcribe` is the T3
 piece that writes rows from the raw JSON. The pipeline it will call
@@ -50,7 +56,7 @@ CLAIM_SQL = text(
            -- google_sync edit debounce (app/google_repo/sync.py)
            AND (params->>'not_before' IS NULL
                 OR (params->>'not_before')::timestamptz <= now())
-         ORDER BY created_at
+         ORDER BY (kind = 'transcribe'), created_at
            FOR UPDATE SKIP LOCKED
          LIMIT 1
      )
@@ -320,8 +326,11 @@ def handle_export(session, job: dict) -> str:  # noqa: ANN001
 def handle_google_sync(session, job: dict) -> str:  # noqa: ANN001
     """Upsert one episode's Google Doc (or all), then rebuild the index Sheet."""
     from .google_repo import sync as google_sync
+    from .purge_audio import purge_after_sync
 
-    return google_sync.handle_job(session, job)
+    result = google_sync.handle_job(session, job)
+    purged = purge_after_sync(session, job)
+    return f"{result}; audio: {purged}" if purged else result
 
 
 HANDLERS = {
