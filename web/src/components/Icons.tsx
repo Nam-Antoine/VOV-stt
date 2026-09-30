@@ -162,3 +162,14 @@ export const Sheet = (p: P) => (
     <path d="M4 9h16M4 14.5h16M10 9v11.5" />
   </Svg>
 )
+export const Copy = (p: P) => (
+  <Svg {...p}>
+    <rect x="8.5" y="8.5" width="12" height="12" rx="1.5" />
+    <path d="M15.5 8.5V5A1.5 1.5 0 0014 3.5H5A1.5 1.5 0 003.5 5v9A1.5 1.5 0 005 15.5h3.5" />
+  </Svg>
+)
+export const Check = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </Svg>
+)

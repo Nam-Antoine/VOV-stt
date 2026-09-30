@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
-import { Folder, Pencil, Plus, Sheet, Spinner, Trash } from '../components/Icons'
+import { Check, Copy, Folder, Pencil, Plus, Sheet, Spinner, Trash } from '../components/Icons'
 import { rememberProject } from '../lastProject'
 import type { Project } from '../api/types'
 
@@ -77,6 +77,30 @@ function NewProjectForm({ onCreated }: { onCreated: (p: Project) => void }) {
         </button>
       </div>
     </form>
+  )
+}
+
+// Copies "<project name>:<Sheet link>", the line the owner pastes to the client.
+function CopySheetLink({ name, url }: { name: string; url: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`${name}:${url}`)
+      setState('copied')
+    } catch {
+      // No clipboard access (plain-http origin, permission denied).
+      setState('failed')
+    }
+    setTimeout(() => setState('idle'), 2000)
+  }
+
+  const label = { idle: 'Sao chép tên dự án và link Sheet', copied: 'Đã sao chép', failed: 'Không sao chép được' }[state]
+  return (
+    <button onClick={copy} className="btn-ghost btn-sm" title={label} aria-label={label}>
+      {state === 'copied' ? <Check className="text-emerald-600" /> : <Copy />}
+      {state === 'failed' && <span className="text-xs text-rose-600">{label}</span>}
+    </button>
   )
 }
 
@@ -191,6 +215,7 @@ function ProjectCard({ project }: { project: Project }) {
             <Sheet />
           </a>
         )}
+        {project.sheet_url && <CopySheetLink name={project.name} url={project.sheet_url} />}
         <button
           onClick={() => {
             setDraft(project.name)
