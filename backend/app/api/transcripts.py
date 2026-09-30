@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from .. import player
 from .. import readable as readable_mod
+from ..pipeline import audio as audio_mod
 from ..config import settings
 from ..db import get_session
 from ..models import Episode, Transcript, Utterance, Word
@@ -117,20 +118,21 @@ def get_raw_json(
 
 
 def _audio_path(session: Session, transcript: Transcript) -> Path:
-    """The 16 kHz WAV if the pipeline kept one, else the original upload.
+    """The 16 kHz decode (FLAC, or a legacy WAV) if the pipeline kept one, else the
+    original upload.
 
-    Timestamps are measured against the 16 kHz WAV (PLAN §13), so that is what the
+    Timestamps are measured against the 16 kHz decode (PLAN §13), so that is what the
     player should seek in whenever it exists.
     """
     episode = session.get(Episode, transcript.episode_id)
     if episode is None or not episode.audio_path:
         raise HTTPException(status_code=404, detail="thiếu file âm thanh của tập")
     original = Path(episode.audio_path)
-    wav = original.with_suffix("").with_suffix(".16k.wav")
-    candidate = original.parent / f"{original.stem}.16k.wav"
-    for path in (candidate, wav, original):
-        if path.exists():
-            return path
+    derived = audio_mod.derived_path(original)
+    if derived is not None:
+        return derived
+    if original.exists():
+        return original
     raise HTTPException(status_code=404, detail=f"thiếu file âm thanh: {original}")
 
 
@@ -144,11 +146,11 @@ def stream_audio(
     """Range-request streaming. wavesurfer and click-to-play both need seeking."""
     transcript = _transcript_or_404(session, transcript_id)
     path = _audio_path(session, transcript)
-    # The compressed listening copy once it exists (~5 MB vs ~27 MB); the WAV until then.
-    if path.suffix == ".wav":
+    # The compressed listening copy once it exists (~5 MB); the 16 kHz file until then.
+    if audio_mod.is_derived(path):
         path = player.proxy_or_schedule(path) or path
     size = path.stat().st_size
-    media_type = {".wav": "audio/wav", ".m4a": "audio/mp4"}.get(path.suffix) or (
+    media_type = {".wav": "audio/wav", ".flac": "audio/flac", ".m4a": "audio/mp4"}.get(path.suffix) or (
         mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     )
     headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}
@@ -204,13 +206,13 @@ def get_peaks(
 ) -> Response:
     """Waveform peaks + exact duration, so the player never decodes the audio itself.
 
-    404 when only the original upload exists (no 16 kHz WAV): the player then falls
+    404 when only the original upload exists (no 16 kHz decode): the player then falls
     back to decoding in the browser, as before.
     """
     transcript = _transcript_or_404(session, transcript_id)
     path = _audio_path(session, transcript)
-    if path.suffix != ".wav":
-        raise HTTPException(status_code=404, detail="chưa có file WAV 16 kHz để vẽ dạng sóng")
+    if not audio_mod.is_derived(path):
+        raise HTTPException(status_code=404, detail="chưa có file 16 kHz để vẽ dạng sóng")
     player.proxy_or_schedule(path)  # warm the listening copy while we are here
     return Response(
         content=json.dumps(player.peaks_for(path)),

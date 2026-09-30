@@ -38,13 +38,19 @@ def store_stream(fileobj, dest: Path) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     digest = hashlib.sha256()
-    with tmp.open("wb") as out:
-        while True:
-            chunk = fileobj.read(CHUNK)
-            if not chunk:
-                break
-            digest.update(chunk)
-            out.write(chunk)
+    try:
+        with tmp.open("wb") as out:
+            while True:
+                chunk = fileobj.read(CHUNK)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                out.write(chunk)
+    except BaseException:
+        # A half-written upload (disk full, client gone) would otherwise sit in
+        # AUDIO_DIR taking space nobody can see.
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(dest)
     return digest.hexdigest()
 

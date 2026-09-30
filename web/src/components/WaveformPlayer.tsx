@@ -21,7 +21,7 @@ export interface WaveformPlayerHandle {
 }
 
 export interface WaveformPlayerProps {
-  /** api.audioUrl(transcriptId) — range-request streaming (compressed copy or WAV). */
+  /** api.audioUrl(transcriptId) — range-request streaming (compressed copy or 16 kHz file). */
   src: string
   /**
    * Server-computed waveform. With it the player draws at once and streams the audio
