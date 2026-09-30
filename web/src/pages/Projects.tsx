@@ -80,13 +80,21 @@ function NewProjectForm({ onCreated }: { onCreated: (p: Project) => void }) {
   )
 }
 
-// Copies "<project name>:<Sheet link>", the line the owner pastes to the client.
-function CopySheetLink({ name, url }: { name: string; url: string }) {
+// "<project name>:<Sheet link>", the line the owner pastes to the client.
+const sheetLine = (p: Project) => `${p.name}:${p.sheet_url}`
+
+function CopyButton({ text, label, caption, className = 'btn-ghost btn-sm' }: {
+  text: string
+  label: string
+  /** Visible text next to the icon; icon-only when omitted. */
+  caption?: string
+  className?: string
+}) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(`${name}:${url}`)
+      await navigator.clipboard.writeText(text)
       setState('copied')
     } catch {
       // No clipboard access (plain-http origin, permission denied).
@@ -95,11 +103,12 @@ function CopySheetLink({ name, url }: { name: string; url: string }) {
     setTimeout(() => setState('idle'), 2000)
   }
 
-  const label = { idle: 'Sao chép tên dự án và link Sheet', copied: 'Đã sao chép', failed: 'Không sao chép được' }[state]
+  const title = { idle: label, copied: 'Đã sao chép', failed: 'Không sao chép được' }[state]
   return (
-    <button onClick={copy} className="btn-ghost btn-sm" title={label} aria-label={label}>
-      {state === 'copied' ? <Check className="text-emerald-600" /> : <Copy />}
-      {state === 'failed' && <span className="text-xs text-rose-600">{label}</span>}
+    <button onClick={copy} className={className} title={title} aria-label={title}>
+      {state === 'copied' ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy />}
+      {state === 'failed' ? <span className="text-xs text-rose-600">{title}</span>
+        : caption && <span>{state === 'copied' ? title : caption}</span>}
     </button>
   )
 }
@@ -215,7 +224,9 @@ function ProjectCard({ project }: { project: Project }) {
             <Sheet />
           </a>
         )}
-        {project.sheet_url && <CopySheetLink name={project.name} url={project.sheet_url} />}
+        {project.sheet_url && (
+          <CopyButton text={sheetLine(project)} label="Sao chép tên dự án và link Sheet" />
+        )}
         <button
           onClick={() => {
             setDraft(project.name)
@@ -264,6 +275,7 @@ export default function Projects() {
   const navigate = useNavigate()
   const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.listProjects() })
   const rows = projects.data ?? []
+  const summary = rows.filter((p) => p.sheet_url).map(sheetLine).join('\n')
 
   return (
     <section>
@@ -275,12 +287,22 @@ export default function Projects() {
             Mỗi chương trình là một dự án riêng, với thư mục Google Drive và Sheet riêng.
           </p>
         </div>
-        <NewProjectForm
-          onCreated={(p) => {
-            rememberProject(p.id)
-            navigate(`/projects/${p.id}`)
-          }}
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          {summary && (
+            <CopyButton
+              text={summary}
+              label="Sao chép tên và link Sheet của mọi dự án, mỗi dự án một dòng"
+              caption="Sao chép tất cả"
+              className="btn-outline"
+            />
+          )}
+          <NewProjectForm
+            onCreated={(p) => {
+              rememberProject(p.id)
+              navigate(`/projects/${p.id}`)
+            }}
+          />
+        </div>
       </header>
 
       {projects.isLoading ? (
