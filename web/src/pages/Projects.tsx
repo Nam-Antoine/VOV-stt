@@ -80,8 +80,8 @@ function NewProjectForm({ onCreated }: { onCreated: (p: Project) => void }) {
   )
 }
 
-// "<project name>:<Sheet link>", the line the owner pastes to the client.
-const sheetLine = (p: Project) => `${p.name}:${p.sheet_url}`
+// "<project name>: <Sheet link>", the line the owner pastes to the client.
+const sheetLine = (p: Project) => `${p.name}: ${p.sheet_url}`
 
 function CopyButton({ text, label, caption, className = 'btn-ghost btn-sm' }: {
   text: string
