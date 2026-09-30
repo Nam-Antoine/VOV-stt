@@ -85,6 +85,13 @@ export const Spinner = ({ className }: P) => (
 )
 
 // Sidebar navigation and the three-step upload header.
+export const Library = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </Svg>
+)
 export const Cycle = (p: P) => (
   <Svg {...p}>
     <path d="M21 12a9 9 0 01-15.5 6.2L3 16" />
@@ -147,5 +154,11 @@ export const Plus = (p: P) => (
 export const Trash = (p: P) => (
   <Svg {...p}>
     <path d="M4 7h16M9 7V4.5A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7m2 0v12.5A1.5 1.5 0 0115.5 21h-7A1.5 1.5 0 017 19.5V7" />
+  </Svg>
+)
+export const Sheet = (p: P) => (
+  <Svg {...p}>
+    <rect x="4" y="3.5" width="16" height="17" rx="1.5" />
+    <path d="M4 9h16M4 14.5h16M10 9v11.5" />
   </Svg>
 )

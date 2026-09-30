@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
-import { Folder, Plus, Spinner, Trash } from '../components/Icons'
+import { Folder, Pencil, Plus, Sheet, Spinner, Trash } from '../components/Icons'
 import { rememberProject } from '../lastProject'
 import type { Project } from '../api/types'
 
@@ -180,8 +180,15 @@ function ProjectCard({ project }: { project: Project }) {
       <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-line pt-3">
         <button onClick={open} className="btn-outline btn-sm">Mở</button>
         {project.sheet_url && (
-          <a href={project.sheet_url} target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
-            Google Sheet
+          <a
+            href={project.sheet_url}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost btn-sm"
+            title="Mở Google Sheet"
+            aria-label="Mở Google Sheet"
+          >
+            <Sheet />
           </a>
         )}
         <button
@@ -190,8 +197,10 @@ function ProjectCard({ project }: { project: Project }) {
             setEditing('name')
           }}
           className="btn-ghost btn-sm"
+          title="Đổi tên dự án"
+          aria-label="Đổi tên dự án"
         >
-          Đổi tên
+          <Pencil />
         </button>
         {project.n_episodes === 0 && (
           <span className="ml-auto">

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { api, ApiError } from './api/client'
-import { Cycle, Download, Folder, Signout, Spinner, Tag, Users as UsersIcon } from './components/Icons'
+import { Cycle, Download, Folder, Library, Signout, Spinner, Tag, Users as UsersIcon } from './components/Icons'
 import ThemeToggle from './components/ThemeToggle'
 import { lastProjectId, rememberProject } from './lastProject'
 import Episode from './pages/Episode'
@@ -18,6 +18,9 @@ import Users from './pages/Users'
 import type { Me } from './api/types'
 
 const NAV = [
+  // The pre-Projects flat view — all episodes across every project in one list, upload
+  // included. Kept as an extra tab so Projects stays optional, not a forced migration.
+  { to: '/library', label: 'Thư viện', Icon: Library },
   { to: '/projects', label: 'Dự án', Icon: Folder },
   { to: '/jobs', label: 'Tác vụ', Icon: Cycle },
   { to: '/hotwords', label: 'Từ khóa', Icon: Tag },
@@ -274,6 +277,7 @@ export default function App() {
             <Route path="/episodes" element={<LastProjectOrPicker />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:id" element={<ProjectEpisodes />} />
+            <Route path="/library" element={<Episodes />} />
             <Route path="/episodes/:id" element={<Episode />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/hotwords" element={<Hotwords />} />

@@ -164,7 +164,7 @@ function subtitle(e: { air_date: string | null; slug: string }) {
   return `Phát sóng ${d}/${m}/${y}`
 }
 
-export default function Episodes({ projectId, projectName }: { projectId: string; projectName?: string }) {
+export default function Episodes({ projectId, projectName }: { projectId?: string; projectName?: string }) {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState('')
@@ -299,13 +299,15 @@ export default function Episodes({ projectId, projectName }: { projectId: string
 
       <header className="mb-5 flex flex-wrap items-center gap-3">
         <div>
-          <Link
-            to="/projects"
-            className="eyebrow inline-flex items-center gap-1.5 hover:text-ink"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            Các dự án
-          </Link>
+          {projectId && (
+            <Link
+              to="/projects"
+              className="eyebrow inline-flex items-center gap-1.5 hover:text-ink"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Các dự án
+            </Link>
+          )}
           <h1 className="title mt-1">{projectName ?? 'Tải lên và chép lời'}</h1>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
