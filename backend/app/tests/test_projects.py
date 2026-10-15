@@ -181,7 +181,9 @@ def test_upload_with_no_project_id_uses_the_default_project(tmp_path, monkeypatc
     from app import ingest
     from app.config import settings
 
-    monkeypatch.setattr(settings, "audio_dir", tmp_path)
+    # ingest.ensure_dirs() creates all three; /data is not writable on the CI runner.
+    for name in ("audio_dir", "raw_dir", "exports_dir"):
+        monkeypatch.setattr(settings, name, tmp_path / name)
     monkeypatch.setattr(ingest, "probe_duration_s", lambda path: 12.0)
     default = Project(id=EXISTING_ID, slug="dan-ba-30", name="Đàn bà 30+")
     monkeypatch.setattr("app.projects.default_project", lambda s: default)
@@ -199,7 +201,9 @@ def test_upload_with_a_project_id_uses_it_instead(tmp_path, monkeypatch):
     from app import ingest
     from app.config import settings
 
-    monkeypatch.setattr(settings, "audio_dir", tmp_path)
+    # ingest.ensure_dirs() creates all three; /data is not writable on the CI runner.
+    for name in ("audio_dir", "raw_dir", "exports_dir"):
+        monkeypatch.setattr(settings, name, tmp_path / name)
     monkeypatch.setattr(ingest, "probe_duration_s", lambda path: 12.0)
     other = uuid.uuid4()
 
