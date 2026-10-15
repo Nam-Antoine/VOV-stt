@@ -19,10 +19,11 @@
 # not get a red Deploy run on every push. The box's `origin` must point at this repo.
 name: Deploy
 
-# Automatic deploys after CI on main are off (owner, 15 Oct 2026: the site is taken down).
-# Re-enable by restoring the workflow_run trigger:
-#   workflow_run: {workflows: [CI], types: [completed], branches: [main]}
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
