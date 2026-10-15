@@ -38,7 +38,7 @@ def stubbed(monkeypatch, tmp_path):
                      source_sha256="0" * 64, duration_s=4.0, sample_rate=16_000,
                      channels=1)
     monkeypatch.setattr(run_mod.audio_mod, "prepare", lambda *a, **k: info)
-    monkeypatch.setattr(run_mod.audio_mod, "read_wav_f32", lambda p: ([0.0] * 10, 16_000))
+    monkeypatch.setattr(run_mod.audio_mod, "read_pcm_f32", lambda p: ([0.0] * 10, 16_000))
     monkeypatch.setattr(run_mod, "vad_mod_segment", lambda *a: [(0.0, 2.0), (2.8, 4.0)])
     monkeypatch.setattr(run_mod.asr_mod, "recognizer_from_params", lambda p: object())
     # A fresh list per call, like the real decoder.

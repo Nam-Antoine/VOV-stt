@@ -19,17 +19,21 @@ const FORMATS = [
 /** One episode's downloads; without ``episodeId`` it zips every finished episode. */
 export default function ExportMenu({
   episodeId,
+  projectId,
   disabled = false,
   disabledReason,
   label = 'Tải về',
 }: {
   episodeId?: string
+  /** Only used for the "every episode" zip (no ``episodeId``): limits it to one project. */
+  projectId?: string
   disabled?: boolean
   /** Tooltip while disabled: why the download isn't available yet. */
   disabledReason?: string
   label?: string
 }) {
-  const href = (fmt: string) => (episodeId ? api.exportUrl(episodeId, fmt) : api.allZipUrl(fmt))
+  const href = (fmt: string) =>
+    episodeId ? api.exportUrl(episodeId, fmt) : api.allZipUrl(fmt, projectId)
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
 

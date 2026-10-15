@@ -48,6 +48,34 @@ def _uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
 
+class Project(Base):
+    """A programme (PLAN §9 extension). Its own Drive folder + index Sheet.
+
+    "Đàn bà 30+" is project #1 and keeps the folder/Sheet it already had — see
+    alembic 0009_projects. The ``google_*`` columns mirror ``google_repo_state``
+    but per project.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    google_folder_id: Mapped[str | None] = mapped_column(Text)
+    google_sheet_id: Mapped[str | None] = mapped_column(Text)
+    google_sheet_sha256: Mapped[str | None] = mapped_column(Text)
+    #: The name last written to the folder/Sheet titles; compared to ``name`` to
+    #: detect a rename (google_repo/docs.py, sheet.py).
+    google_title: Mapped[str | None] = mapped_column(Text)
+    google_last_full_sync: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    episodes: Mapped[list[Episode]] = relationship(back_populates="project")
+
+
 class Episode(Base):
     __tablename__ = "episodes"
     __table_args__ = (
@@ -58,6 +86,9 @@ class Episode(Base):
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="RESTRICT"), nullable=False
+    )
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str | None] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(Text)
@@ -73,6 +104,7 @@ class Episode(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    project: Mapped[Project] = relationship(back_populates="episodes")
     transcripts: Mapped[list[Transcript]] = relationship(
         back_populates="episode", cascade="all, delete-orphan"
     )
@@ -292,7 +324,10 @@ class User(Base):
 
 
 class GoogleRepoState(Base):
-    """Key/value state of the Google repository: ``folder_id``, ``sheet_id``… (T3)."""
+    """Key/value state of the Google repository before projects: ``folder_id``,
+    ``sheet_id``… (T3). Superseded by the ``google_*`` columns on :class:`Project`
+    (alembic 0009_projects copied this row's values into project #1). Kept only as the
+    historical record that migration read from — no app code writes or reads it now."""
 
     __tablename__ = "google_repo_state"
 
@@ -313,6 +348,9 @@ class EpisodeGoogleDoc(Base):
         UUID(as_uuid=True), ForeignKey("episodes.id", ondelete="SET NULL"), unique=True
     )
     doc_id: Mapped[str | None] = mapped_column(Text)
+    #: The Drive folder this Doc currently lives in. Compared against the episode's
+    #: project on sync so moving an episode moves its Doc too (google_repo/docs.py).
+    folder_id: Mapped[str | None] = mapped_column(Text)
     text_sha256: Mapped[str | None] = mapped_column(Text)
     layer_used: Mapped[str | None] = mapped_column(Text)
     doc_title: Mapped[str | None] = mapped_column(Text)

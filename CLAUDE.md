@@ -17,3 +17,18 @@ Read PLAN.md first. Key rules:
 10. Do not start T3+ until pilot/RESULTS.md shows the verbatim gate passed and is signed off.
 
 Commands: `make dev`, `make test`, `make pilot`, `make deploy`, `make export EP=<slug>`.
+11. Projects: every episode belongs to a project (`episodes.project_id`). Each project has its
+    own Drive folder ("<name> Corpus") and index Sheet ("<name> Corpus — Index"). Code never
+    deletes anything in Google Drive. Editors to share new folders with come from
+    `GOOGLE_SHARE_EDITORS` in `.env` — never write e-mail addresses into the repo.
+
+## Working rules (for Claude)
+
+- Multi-step request: write a checklist first and finish every item on it.
+- Ask the owner only when a decision genuinely cannot be made from the request, the code or
+  a sensible default, or when a test fails and the fix is not obvious.
+- Keep going until the checklist is done. Stop only when stuck, or before deleting anything
+  important (data, audio, raw JSON, Drive files, DB rows carrying human edits) — ask first.
+- End with a report: what was done, what was verified, what is still a concern.
+- After finishing a feature, sweep what was just added for dead code, duplicate logic,
+  unused components, and unnecessary complexity, and clean it up before reporting done.

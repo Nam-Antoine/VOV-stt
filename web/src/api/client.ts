@@ -11,6 +11,7 @@ import type {
   HotwordSuggestion,
   Job,
   Me,
+  Project,
   Role,
   Stats,
   Transcript,
@@ -62,8 +63,19 @@ const body = (value: unknown) => JSON.stringify(value)
 export const api = {
   // --- ops ---------------------------------------------------------------
   health: () => request<Health>('/health'),
-  stats: () => request<Stats>('/stats'),
-  googleRepo: () => request<GoogleRepo>('/google-repo'),
+  stats: (projectId?: string) =>
+    request<Stats>(`/stats${projectId ? `?project_id=${projectId}` : ''}`),
+  googleRepo: (projectId?: string) =>
+    request<GoogleRepo>(`/google-repo${projectId ? `?project_id=${projectId}` : ''}`),
+
+  // --- projects ------------------------------------------------------------
+  listProjects: () => request<Project[]>('/projects'),
+  getProject: (id: string) => request<Project>(`/projects/${id}`),
+  createProject: (payload: { name: string; description?: string }) =>
+    request<Project>('/projects', { method: 'POST', body: body(payload) }),
+  patchProject: (id: string, patch: Partial<{ name: string; description: string }>) =>
+    request<Project>(`/projects/${id}`, { method: 'PATCH', body: body(patch) }),
+  deleteProject: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
 
   // --- auth --------------------------------------------------------------
   login: (username: string, password: string) =>
@@ -86,20 +98,25 @@ export const api = {
   ) => request<User>(`/users/${id}`, { method: 'PATCH', body: body(patch) }),
 
   // --- episodes ----------------------------------------------------------
-  listEpisodes: (params: { status?: string; q?: string } = {}) => {
+  listEpisodes: (params: { status?: string; q?: string; project_id?: string } = {}) => {
     const qs = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v) as [string, string][],
     )
     return request<EpisodeListItem[]>(`/episodes${qs.toString() ? `?${qs}` : ''}`)
   },
   getEpisode: (id: string) => request<EpisodeDetail>(`/episodes/${id}`),
-  uploadEpisode: (file: File) => {
+  uploadEpisode: (file: File, projectId?: string) => {
     const form = new FormData()
     form.append('file', file)
-    return request<Episode>('/episodes/upload', { method: 'POST', body: form })
+    const qs = projectId ? `?project_id=${projectId}` : ''
+    return request<Episode>(`/episodes/upload${qs}`, { method: 'POST', body: form })
   },
-  episodeFromUrl: (payload: { url: string; title?: string; air_date?: string }) =>
+  episodeFromUrl: (payload: { url: string; title?: string; air_date?: string; project_id?: string }) =>
     request<Episode>('/episodes/from-url', { method: 'POST', body: body(payload) }),
+  renameEpisode: (id: string, title: string) =>
+    request<Episode>(`/episodes/${id}`, { method: 'PATCH', body: body({ title }) }),
+  moveEpisode: (id: string, projectId: string) =>
+    request<Episode>(`/episodes/${id}`, { method: 'PATCH', body: body({ project_id: projectId }) }),
   transcribe: (id: string, params: Record<string, unknown> = {}) =>
     request<Job>(`/episodes/${id}/transcribe`, { method: 'POST', body: body(params) }),
   exportEpisode: (id: string) =>
@@ -155,5 +172,7 @@ export const api = {
   // --- exports -----------------------------------------------------------
   exportUrl: (episodeId: string, fmt: string) =>
     `${BASE}/episodes/${episodeId}/export.${fmt}`,
-  allZipUrl: (fmt: string) => `${BASE}/exports/all.zip?fmt=${encodeURIComponent(fmt)}`,
+  allZipUrl: (fmt: string, projectId?: string) =>
+    `${BASE}/exports/all.zip?fmt=${encodeURIComponent(fmt)}` +
+    (projectId ? `&project_id=${projectId}` : ''),
 }

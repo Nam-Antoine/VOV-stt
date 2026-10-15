@@ -21,10 +21,10 @@ import httplib2  # noqa: E402
 from googleapiclient.errors import HttpError  # noqa: E402
 
 from app.config import settings  # noqa: E402
-from app.google_repo import auth, docs, sheet, state, sync  # noqa: E402
+from app.google_repo import auth, docs, sheet, sync  # noqa: E402
 from app.google_repo import health as health_mod  # noqa: E402
 from app.google_repo.client import Google  # noqa: E402
-from app.models import EpisodeGoogleDoc  # noqa: E402
+from app.models import EpisodeGoogleDoc, Project  # noqa: E402
 
 WRITES = {
     "drive.files.create", "drive.files.update",
@@ -87,6 +87,8 @@ class FakeGoogleAPI:
             return {"id": kw["fileId"]}
         if method == "drive.about.get":
             return {"user": {"emailAddress": "owner@example.com", "displayName": "Owner"}}
+        if method == "drive.permissions.create":
+            return {"id": self._new_id("p")}
         if method == "docs.documents.create":
             did = self._new_id("d")
             self.files[did] = {"name": kw["body"]["title"], "parents": ["root"], "text": ""}
@@ -142,24 +144,30 @@ def make_google(api: FakeGoogleAPI) -> tuple[Google, list[float]]:
 # --- a database stand-in --------------------------------------------------------------
 
 class World:
-    """Episodes, their current text, and the two Google tables, all in memory."""
+    """One project's episodes, their current text, and the Google tables, all in memory.
 
-    def __init__(self, monkeypatch, n: int = 2) -> None:
-        self.kv: dict[str, str | None] = {}
+    ``session.get`` only needs to answer for ``Project`` (everything else the sync code
+    reads is monkeypatched below), so it is enough of a database stand-in.
+    """
+
+    def __init__(self, monkeypatch, n: int = 2, project: Project | None = None) -> None:
+        self.project = project or Project(id=uuid.uuid4(), slug="dan-ba-30", name="Đàn bà 30+")
         self.rows: dict[uuid.UUID, EpisodeGoogleDoc] = {}
         self.episodes = [
             SimpleNamespace(id=uuid.uuid4(), slug=f"2020010{k + 1}-ep{k}",
                             title=f"Tập {k}", air_date=date(2020, 1, k + 1),
                             duration_s=900.0, source_url=f"https://vov.example/{k}",
-                            status="transcribed")
+                            status="transcribed", project_id=self.project.id)
             for k in range(n)
         ]
         self.text = {e.id: f"Đoạn một của tập {k}.\n\nĐoạn hai.\n"
                      for k, e in enumerate(self.episodes)}
-        self.session = SimpleNamespace(flush=lambda: None, commit=lambda: None)
+        self.projects_by_id = {self.project.id: self.project}
+        self.session = SimpleNamespace(
+            flush=lambda: None, commit=lambda: None,
+            get=lambda model, key: self.projects_by_id.get(key) if model is Project else None,
+        )
 
-        monkeypatch.setattr(state, "get", lambda s, k: self.kv.get(k))
-        monkeypatch.setattr(state, "put", lambda s, k, v: self.kv.__setitem__(k, v))
         monkeypatch.setattr(docs.loader, "current_transcript",
                             lambda s, eid: SimpleNamespace(id=eid))
         monkeypatch.setattr(docs, "render_plain",
@@ -167,11 +175,11 @@ class World:
                                                            "readable"))
         monkeypatch.setattr(docs, "_row", lambda s, ep: self.rows.setdefault(
             ep.id, EpisodeGoogleDoc(episode_id=ep.id)))
-        monkeypatch.setattr(sheet, "rows", lambda s: [
+        monkeypatch.setattr(sheet, "rows", lambda s, project: [
             [e.slug, sheet.title_cell(e.title, getattr(self.rows.get(e.id), "doc_id", None)),
              e.air_date.isoformat(), sheet.duration_text(e.duration_s), e.source_url,
              e.status, "", getattr(self.rows.get(e.id), "syllables", "")]
-            for e in self.episodes
+            for e in self.episodes if e.project_id == project.id
         ])
 
     def _render(self, tid, labels):
@@ -196,9 +204,9 @@ def test_first_sync_creates_folder_sheet_and_docs(monkeypatch, enabled):
     counts = world.sync(g)
 
     assert counts == {"created": 2, "sheet_written": 1}
-    folder = world.kv[state.FOLDER_ID]
-    assert api.files[folder]["name"] == settings.google_folder_name
-    sheet_file = api.files[world.kv[state.SHEET_ID]]
+    folder = world.project.google_folder_id
+    assert api.files[folder]["name"] == docs.folder_name(world.project)
+    sheet_file = api.files[world.project.google_sheet_id]
     assert sheet_file["parents"] == [folder] and sheet_file.get("frozen")
     for e in world.episodes:
         doc = api.files[world.rows[e.id].doc_id]
@@ -252,7 +260,7 @@ def test_a_title_change_renames_the_doc(monkeypatch, enabled):
     assert counts["renamed"] == 1
     assert [m for m in api.writes() if m.startswith("docs.")] == []
     assert api.files[world.rows[first.id].doc_id]["name"] == f'{first.slug} — Tên "mới"'
-    title = api.files[world.kv[state.SHEET_ID]]["values"][1][1]
+    title = api.files[world.project.google_sheet_id]["values"][1][1]
     assert title.endswith('"Tên ""mới""")')
 
 
@@ -269,8 +277,75 @@ def test_a_deleted_doc_is_recreated(monkeypatch, enabled):
     new = world.rows[first.id].doc_id
     assert counts["created"] == 1 and new != old
     assert api.files[new]["text"] == "Sửa sau khi xoá.\n"
-    assert api.files[new]["parents"] == [world.kv[state.FOLDER_ID]]
+    assert api.files[new]["parents"] == [world.project.google_folder_id]
     assert world.rows[first.id].last_error is None
+
+
+def test_two_projects_get_separate_folders_and_sheets(monkeypatch, enabled):
+    # Each World monkeypatches docs.render_plain/sheet.rows over the same module
+    # attribute, so the second one built would shadow the first's — sync `a` before
+    # constructing `b` rather than holding both worlds live at once.
+    api = FakeGoogleAPI()
+    g, _ = make_google(api)
+    a = World(monkeypatch, n=1, project=Project(id=uuid.uuid4(), slug="a", name="A"))
+    a.sync(g)
+    b = World(monkeypatch, n=1, project=Project(id=uuid.uuid4(), slug="b", name="B"))
+    b.sync(g)
+
+    assert a.project.google_folder_id != b.project.google_folder_id
+    assert a.project.google_sheet_id != b.project.google_sheet_id
+    assert api.files[a.project.google_folder_id]["name"] == "A Corpus"
+    assert api.files[b.project.google_folder_id]["name"] == "B Corpus"
+    a_values = api.files[a.project.google_sheet_id]["values"]
+    b_values = api.files[b.project.google_sheet_id]["values"]
+    assert len(a_values) == 2 and len(b_values) == 2  # header + this project's 1 episode
+    assert a_values[1][0] == a.episodes[0].slug
+    assert b_values[1][0] == b.episodes[0].slug
+
+
+def test_renaming_a_project_renames_its_folder_and_sheet(monkeypatch, enabled):
+    world, api = World(monkeypatch, n=1), FakeGoogleAPI()
+    g, _ = make_google(api)
+    world.sync(g)
+
+    world.project.name = "Chuyện quê"
+    world.sync(g)
+
+    assert api.files[world.project.google_folder_id]["name"] == "Chuyện quê Corpus"
+    assert api.files[world.project.google_sheet_id]["name"] == "Chuyện quê Corpus — Index"
+
+
+def test_moving_an_episode_moves_its_doc(monkeypatch, enabled):
+    old = Project(id=uuid.uuid4(), slug="old", name="Old")
+    new = Project(id=uuid.uuid4(), slug="new", name="New")
+    world = World(monkeypatch, n=1, project=old)
+    world.projects_by_id[new.id] = new
+    api = FakeGoogleAPI()
+    g, _ = make_google(api)
+    world.sync(g)
+    ep = world.episodes[0]
+    doc_id = world.rows[ep.id].doc_id
+
+    ep.project_id = new.id
+    counts = sync.sync(world.session, [ep], g=g, full=False)
+
+    assert counts.get("moved") == 1
+    assert api.files[doc_id]["parents"] == [new.google_folder_id]
+    assert world.rows[ep.id].folder_id == new.google_folder_id
+
+
+def test_creating_a_folder_shares_it_with_configured_editors(monkeypatch, enabled):
+    monkeypatch.setattr(settings, "google_share_editors_raw",
+                        "a@example.com, b@example.com")
+    world, api = World(monkeypatch, n=0), FakeGoogleAPI()
+    g, _ = make_google(api)
+    sync.sync(world.session, world.episodes, g=g, full=True,
+             extra_project_ids=(world.project.id,))
+
+    shares = [kw for m, kw in api.calls if m == "drive.permissions.create"]
+    assert {s["body"]["emailAddress"] for s in shares} == {"a@example.com", "b@example.com"}
+    assert all(s["body"]["role"] == "writer" for s in shares)
+    assert all(s["fileId"] == world.project.google_folder_id for s in shares)
 
 
 def test_429_is_retried_then_succeeds(monkeypatch, enabled):

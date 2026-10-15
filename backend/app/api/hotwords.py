@@ -99,8 +99,11 @@ def patch_hotword(
     hotword = session.get(Hotword, hotword_id)
     if hotword is None:
         raise HTTPException(status_code=404, detail="không tìm thấy từ khóa")
-    if body.term is not None:
+    if body.term is not None and body.term != hotword.term:
         _check_encodable(body.term)
+        clash = session.scalar(select(Hotword).where(Hotword.term == body.term))
+        if clash is not None:
+            raise HTTPException(status_code=409, detail="từ khóa đã tồn tại")
     for field, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(hotword, field, value)

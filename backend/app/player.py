@@ -6,10 +6,10 @@ it before it could draw a waveform or play a sample. Both jobs move here:
 * **Peaks** — a few thousand max-amplitude points computed once from the WAV. With
   peaks and a duration in hand, wavesurfer draws immediately and streams the audio
   through a plain ``<audio>`` element instead of decoding it.
-* **Proxy** — mono AAC in an ``.m4a`` (~5 MB). Encoded from the 16 kHz WAV, not the
-  original upload, so its timeline is the one the word timestamps were measured
-  against (PLAN §13). The ``.m4a`` carries an edit list that strips the encoder
-  priming, so a seek lands on the same sample as in the WAV.
+* **Proxy** — mono AAC in an ``.m4a`` (~5 MB). Encoded from the 16 kHz decode (FLAC,
+  or a legacy WAV), not the original upload, so its timeline is the one the word
+  timestamps were measured against (PLAN §13). The ``.m4a`` carries an edit list that
+  strips the encoder priming, so a seek lands on the same sample as in the 16 kHz file.
 
 Everything here is a disposable cache under ``DATA_DIR/cache/player``: it is derived,
 regenerable, and never touches ``/data/raw`` (PLAN §0.2). Delete the folder and it is

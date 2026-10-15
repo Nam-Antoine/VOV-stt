@@ -16,7 +16,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import ConfidenceToggle, { confPercentile } from '../components/ConfidenceToggle'
 import ExportMenu from '../components/ExportMenu'
-import { ArrowLeft, Spinner } from '../components/Icons'
+import { ArrowLeft, Pencil, Spinner } from '../components/Icons'
 import Shortcuts from '../components/Shortcuts'
 import TranscriptEditor from '../components/TranscriptEditor'
 import WaveformPlayer, { type WaveformPlayerHandle } from '../components/WaveformPlayer'
@@ -58,6 +58,8 @@ export default function Episode() {
   })
 
   const transcriptId = episode.data?.current_transcript_id ?? null
+  // Null once the audio was deleted after its Google Doc synced (app/purge_audio.py).
+  const hasAudio = !!episode.data?.audio_path
 
   const transcript = useQuery({
     queryKey: ['transcript', transcriptId],
@@ -70,17 +72,33 @@ export default function Episode() {
   const peaks = useQuery({
     queryKey: ['peaks', transcriptId],
     queryFn: () => api.getPeaks(transcriptId!),
-    enabled: !!transcriptId,
+    enabled: !!transcriptId && hasAudio,
     staleTime: Infinity,
     retry: false,
   })
 
+  // A failed save must not silently drop what the verifier typed. saveError holds the
+  // exact text that failed to save, so TranscriptEditor can reopen that block with it
+  // (instead of the useEffect that resets the draft back to the server's old text on
+  // close, which is what used to lose it) and show why.
+  const [saveError, setSaveError] = useState<
+    { utteranceId: string; text: string; message: string } | null
+  >(null)
   const saveUtterance = useMutation({
     mutationFn: ({ utteranceId, text }: { utteranceId: string; text: string }) =>
       api.patchUtterance(utteranceId, { text_verified: text }),
-    onSuccess: () => {
+    onSuccess: (_data, { utteranceId }) => {
+      setSaveError((e) => (e?.utteranceId === utteranceId ? null : e))
       queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] })
       queryClient.invalidateQueries({ queryKey: ['episode', id] })
+      // n_verified on the Episodes list card is otherwise stale for its 30s staleTime.
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
+    onError: (err, { utteranceId, text }) => {
+      setSaveError({
+        utteranceId, text,
+        message: err instanceof ApiError ? err.detail : 'Không lưu được — hãy thử lại.',
+      })
     },
   })
 
@@ -108,7 +126,10 @@ export default function Episode() {
 
   const revert = useMutation({
     mutationFn: (utteranceId: string) => api.revertUtterance(utteranceId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transcript', transcriptId] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
   })
 
   const transcribe = useMutation({
@@ -202,14 +223,15 @@ export default function Episode() {
 
       <header className="pb-2">
         <Link
-          to="/episodes"
+          to={`/projects/${ep.project_id}`}
           className="inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
           Quay lại
         </Link>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
-          <h1 className="title min-w-0 break-words">{ep.title || ep.slug}</h1>
+          <EpisodeTitle id={ep.id} title={ep.title || ep.slug} />
+          <ProjectMove episodeId={ep.id} projectId={ep.project_id} />
           <StatusChip status={ep.status} />
           {utterances.length > 0 && (
             <span className="flex w-full items-center gap-3 text-sm text-muted sm:ml-auto sm:w-auto">
@@ -248,7 +270,12 @@ export default function Episode() {
         <>
           {/* Clears the sticky two-row header below lg; on desktop the nav is a sidebar. */}
           <div className="sticky top-[5.875rem] z-20 -mx-1 bg-canvas/90 px-1 py-1 backdrop-blur lg:top-0">
-            {peaks.isPending ? (
+            {!hasAudio ? (
+              <div className="card p-3 text-sm text-muted">
+                Đã xoá âm thanh của tập này để tiết kiệm dung lượng. Bản chép lời vẫn giữ
+                nguyên (và có trong Google Doc), nhưng không nghe lại được.
+              </div>
+            ) : peaks.isPending ? (
               <div className="card p-3">
                 <div className="skeleton h-[72px] w-full" />
                 <div className="mt-2 h-9" />
@@ -331,6 +358,7 @@ export default function Episode() {
               onWordClick={(w) => seekTo(w.start_s)}
               onSave={(utteranceId, text) => saveUtterance.mutate({ utteranceId, text })}
               onRevert={(utteranceId) => revert.mutate(utteranceId)}
+              saveError={saveError}
               confThreshold={confThreshold}
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
@@ -344,5 +372,106 @@ export default function Episode() {
         </>
       )}
     </section>
+  )
+}
+
+/** A small "move to another project" select, next to the title. */
+function ProjectMove({ episodeId, projectId }: { episodeId: string; projectId: string }) {
+  const queryClient = useQueryClient()
+  const projects = useQuery({ queryKey: ['projects'], queryFn: () => api.listProjects() })
+  const move = useMutation({
+    mutationFn: (next: string) => api.moveEpisode(episodeId, next),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['episode', episodeId] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+  const rows = projects.data ?? []
+  if (rows.length < 2) return null // nothing to move to
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-muted">
+      Dự án
+      <select
+        value={projectId}
+        disabled={move.isPending}
+        onChange={(e) => e.target.value !== projectId && move.mutate(e.target.value)}
+        className="field w-auto py-1 text-xs"
+      >
+        {rows.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+/** The page title, with a pencil to rename the episode in place (Enter saves, Esc cancels). */
+function EpisodeTitle({ id, title }: { id: string; title: string }) {
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState<string | null>(null)
+  const rename = useMutation({
+    mutationFn: (next: string) => api.renameEpisode(id, next),
+    onSuccess: () => {
+      setDraft(null)
+      queryClient.invalidateQueries({ queryKey: ['episode', id] })
+      queryClient.invalidateQueries({ queryKey: ['episodes'] })
+    },
+  })
+
+  if (draft === null) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <h1 className="title min-w-0 break-words">{title}</h1>
+        <button
+          onClick={() => setDraft(title)}
+          className="btn-ghost btn-sm shrink-0"
+          title="Đổi tên tập"
+          aria-label="Đổi tên tập"
+        >
+          <Pencil />
+        </button>
+      </span>
+    )
+  }
+
+  const save = () => {
+    const next = draft.trim()
+    if (!next || next === title) setDraft(null)
+    else rename.mutate(next)
+  }
+  return (
+    <form
+      className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1"
+      onSubmit={(e) => {
+        e.preventDefault()
+        save()
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={300}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setDraft(null)
+        }}
+        className="field min-w-0 flex-1 text-base"
+        aria-label="Tên tập"
+      />
+      <button type="submit" className="btn-primary btn-sm" disabled={rename.isPending}>
+        {rename.isPending ? <Spinner className="h-3.5 w-3.5" /> : 'Lưu'}
+      </button>
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setDraft(null)}>
+        Huỷ
+      </button>
+      {rename.isError && (
+        <span className="w-full text-xs text-rose-600">
+          {rename.error instanceof ApiError ? rename.error.detail : 'Không đổi được tên'}
+        </span>
+      )}
+    </form>
   )
 }

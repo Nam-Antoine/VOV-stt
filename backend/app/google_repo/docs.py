@@ -19,8 +19,7 @@ from sqlalchemy.orm import Session
 from .. import loader
 from ..config import settings
 from ..exports.plain import render_plain
-from ..models import Episode, EpisodeGoogleDoc
-from . import state
+from ..models import Episode, EpisodeGoogleDoc, Project
 from .client import Google, call, short_error, status_of
 
 log = logging.getLogger("google_repo")
@@ -28,18 +27,63 @@ log = logging.getLogger("google_repo")
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
-def ensure_folder(session: Session, g: Google) -> str:
-    """The repository folder's ID, creating the folder on first use."""
-    folder_id = state.get(session, state.FOLDER_ID)
-    if folder_id:
-        return folder_id
+def folder_name(project: Project) -> str:
+    return f"{project.name} Corpus"
+
+
+def share_editors(g: Google, folder_id: str) -> None:
+    """Grant Editor to every address in ``GOOGLE_SHARE_EDITORS`` (project memory:
+    the corpus owner must always be Editor on the corpus folder).
+
+    Best-effort: one bad address must not stop the sync, so a failure here is logged
+    and swallowed rather than raised.
+    """
+    for email in settings.google_share_editors:
+        try:
+            g.throttle()
+            call(g, g.drive.permissions().create(
+                fileId=folder_id, sendNotificationEmail=True,
+                body={"type": "user", "role": "writer", "emailAddress": email},
+                fields="id",
+            ))
+        except Exception as exc:  # noqa: BLE001 — sharing must not break the sync
+            log.warning("google: could not share folder with %s: %s", email,
+                        short_error(exc))
+
+
+def ensure_folder(session: Session, g: Google, project: Project) -> str:
+    """This project's Drive folder ID: created (and shared) once, renamed on demand.
+
+    A rename also renames the index Sheet (a Drive file too, same ``files().update``)
+    so both always carry the project's current name — one flag (``google_title``)
+    tracks both, since they change together.
+    """
+    if project.google_folder_id:
+        if project.google_title != project.name:
+            g.throttle()
+            call(g, g.drive.files().update(fileId=project.google_folder_id,
+                                           body={"name": folder_name(project)},
+                                           fields="id"))
+            if project.google_sheet_id:
+                # Duplicated format string: sheet.sheet_name() — kept local to avoid a
+                # docs.py <-> sheet.py import cycle (sheet.py already imports docs.py).
+                g.throttle()
+                call(g, g.drive.files().update(
+                    fileId=project.google_sheet_id,
+                    body={"name": f"{project.name} Corpus — Index"}, fields="id"))
+            project.google_title = project.name
+            session.flush()
+        return project.google_folder_id
     g.throttle()
     folder_id = call(g, g.drive.files().create(
-        body={"name": settings.google_folder_name, "mimeType": FOLDER_MIME},
+        body={"name": folder_name(project), "mimeType": FOLDER_MIME},
         fields="id",
     ))["id"]
-    state.put(session, state.FOLDER_ID, folder_id)
-    log.info("google: created folder %r", settings.google_folder_name)
+    project.google_folder_id = folder_id
+    project.google_title = project.name
+    session.flush()
+    log.info("google: created folder %r for project %r", folder_name(project), project.slug)
+    share_editors(g, folder_id)
     return folder_id
 
 
@@ -118,7 +162,8 @@ def upsert_doc(session: Session, g: Google, episode: Episode, folder_id: str) ->
     title = doc_title(episode)
     row = _row(session, episode)
 
-    if row.doc_id and row.text_sha256 == digest and row.doc_title == title:
+    if (row.doc_id and row.text_sha256 == digest and row.doc_title == title
+            and row.folder_id == folder_id):
         return "unchanged"
 
     try:
@@ -135,6 +180,7 @@ def upsert_doc(session: Session, g: Google, episode: Episode, folder_id: str) ->
 
     row.text_sha256 = digest
     row.doc_title = title
+    row.folder_id = folder_id
     row.layer_used = layer_used
     row.syllables = len(text.split())
     row.synced_at = datetime.now(UTC)
@@ -151,8 +197,11 @@ def _write(g: Google, row: EpisodeGoogleDoc, folder_id: str, title: str, text: s
     if row.doc_id:
         try:
             outcome = None
-            if row.synced_at is None:  # a first sync that failed half way
+            # Also true right after an episode is moved to another project: its Doc
+            # follows the row into that project's folder.
+            if row.synced_at is None or row.folder_id != folder_id:
                 _move_into(g, row.doc_id, folder_id)
+                outcome = "moved" if row.synced_at is not None else None
             if row.text_sha256 != digest:
                 _replace_text(g, row.doc_id, text)
                 outcome = "updated"

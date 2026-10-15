@@ -1,8 +1,10 @@
 """Audio ingest: decode to 16 kHz mono PCM, hash, measure (PLAN §3).
 
-The 16 kHz WAV is **kept** — every timestamp in the corpus is measured against it, not
-against the source mp3. PLAN §13: "always compute offsets from the 16 kHz WAV, not the
-mp3", because a resample can shift duration by a frame or two.
+The 16 kHz decode is **kept** — every timestamp in the corpus is measured against it,
+not against the source mp3. PLAN §13: "always compute offsets from the 16 kHz WAV, not
+the mp3", because a resample can shift duration by a frame or two. It is stored as FLAC
+(lossless: the same samples as that WAV, half the disk); older episodes may still have
+the ``.16k.wav``.
 
 Nothing here touches text, so there is no verbatim risk in this module.
 """
@@ -89,10 +91,32 @@ def probe_duration_s(path: Path) -> float:
     return float(json.loads(out)["format"]["duration"])
 
 
-def to_wav16k(src: Path, dest: Path, *, overwrite: bool = False) -> Path:
-    """Decode ``src`` to 16 kHz mono ``pcm_s16le`` WAV at ``dest``.
+#: The derived 16 kHz file. FLAC, not WAV: lossless, so every sample (and therefore
+#: every timestamp) is identical to the WAV it replaces, at about half the size.
+DERIVED_SUFFIX = ".16k.flac"
+#: Older episodes may still carry a WAV from before the switch.
+LEGACY_SUFFIX = ".16k.wav"
 
-    PLAN §3: ``ffmpeg -i in -ac 1 -ar 16000 -f wav -acodec pcm_s16le``.
+
+def derived_path(original: Path) -> Path | None:
+    """The existing 16 kHz file for an uploaded original, or ``None``."""
+    original = Path(original)
+    for suffix in (DERIVED_SUFFIX, LEGACY_SUFFIX):
+        candidate = original.parent / f"{original.stem}{suffix}"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def is_derived(path: Path) -> bool:
+    return Path(path).name.endswith((DERIVED_SUFFIX, LEGACY_SUFFIX))
+
+
+def to_16k(src: Path, dest: Path, *, overwrite: bool = False) -> Path:
+    """Decode ``src`` to 16 kHz mono 16-bit PCM, stored as FLAC at ``dest``.
+
+    PLAN §3: ``ffmpeg -i in -ac 1 -ar 16000`` to 16-bit PCM. FLAC is only the container:
+    the samples are exactly what ``-acodec pcm_s16le -f wav`` would have written.
     No loudness normalisation, no denoise, no silence trimming — filters change what the
     ASR hears and the pilot's numbers would stop meaning anything.
     """
@@ -106,7 +130,7 @@ def to_wav16k(src: Path, dest: Path, *, overwrite: bool = False) -> Path:
             _require("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
             "-i", str(src),
             "-ac", str(TARGET_CHANNELS), "-ar", str(TARGET_SAMPLE_RATE),
-            "-acodec", "pcm_s16le", "-f", "wav", str(tmp),
+            "-sample_fmt", "s16", "-acodec", "flac", "-f", "flac", str(tmp),
         ],
         check=True, capture_output=True, text=True,
     )
@@ -114,36 +138,29 @@ def to_wav16k(src: Path, dest: Path, *, overwrite: bool = False) -> Path:
     return dest
 
 
-def read_wav_f32(path: Path) -> tuple[np.ndarray, int]:
-    """Read a mono WAV as float32 in [-1, 1] — the shape sherpa-onnx wants.
+def read_pcm_f32(path: Path) -> tuple[np.ndarray, int]:
+    """Read a 16-bit mono FLAC/WAV as float32 in [-1, 1] — the shape sherpa-onnx wants."""
+    import soundfile as sf
 
-    Uses the stdlib ``wave`` module so the pipeline has no hard ``soundfile``
-    dependency for the one format we control.
-    """
-    import wave
-
-    with wave.open(str(path), "rb") as wf:
-        channels, width, rate = wf.getnchannels(), wf.getsampwidth(), wf.getframerate()
-        frames = wf.readframes(wf.getnframes())
-    if width != 2:
-        raise ValueError(f"{path}: expected 16-bit PCM, got {width * 8}-bit")
-    samples = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
-    if channels > 1:
-        samples = samples.reshape(-1, channels).mean(axis=1)
-    return np.ascontiguousarray(samples), rate
+    info = sf.info(str(path))
+    if info.subtype != "PCM_16":
+        raise ValueError(f"{path}: expected 16-bit PCM, got {info.subtype}")
+    samples, rate = sf.read(str(path), dtype="int16", always_2d=True)
+    mono = samples.astype(np.float32).mean(axis=1) / 32768.0
+    return np.ascontiguousarray(mono, dtype=np.float32), rate
 
 
 def prepare(src: Path, wav_dir: Path, *, overwrite: bool = False) -> AudioInfo:
-    """Full ingest for one episode: hash the source, decode, measure the WAV."""
+    """Full ingest for one episode: hash the source, decode, measure the 16 kHz audio."""
     src = Path(src)
-    wav_path = Path(wav_dir) / f"{src.stem}.16k.wav"
-    to_wav16k(src, wav_path, overwrite=overwrite)
-    samples, rate = read_wav_f32(wav_path)
+    wav_path = Path(wav_dir) / f"{src.stem}{DERIVED_SUFFIX}"
+    to_16k(src, wav_path, overwrite=overwrite)
+    samples, rate = read_pcm_f32(wav_path)
     return AudioInfo(
         source_path=src,
         wav_path=wav_path,
         source_sha256=sha256_file(src),
-        duration_s=len(samples) / rate,  # measured on the 16 kHz WAV, per PLAN §13
+        duration_s=len(samples) / rate,  # measured on the 16 kHz decode, per PLAN §13
         sample_rate=rate,
         channels=TARGET_CHANNELS,
     )

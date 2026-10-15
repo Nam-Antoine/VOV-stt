@@ -25,6 +25,21 @@ export interface Episode {
   status: EpisodeStatus
   created_at: string
   updated_at: string
+  project_id: string
+}
+
+/** A programme — its own Drive folder + index Sheet. "Đàn bà 30+" is the first one. */
+export interface Project {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  created_at: string
+  sheet_url: string | null
+  n_episodes: number
+  n_transcribed: number
+  n_verified: number
+  hours_verified: number
 }
 
 export interface EpisodeListItem extends Episode {

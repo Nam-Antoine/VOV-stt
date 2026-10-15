@@ -1,4 +1,5 @@
 // Per-episode downloads: the punctuated reading copy as Word, PDF or TXT.
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
@@ -6,13 +7,23 @@ import { api } from '../api/client'
 import ExportMenu from '../components/ExportMenu'
 
 export default function Exports() {
-  const episodes = useQuery({ queryKey: ['episodes', ''], queryFn: () => api.listEpisodes() })
+  // "" = every project, in one export/Sheet list.
+  const [projectId, setProjectId] = useState('')
+  const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: () => api.listProjects() })
+  const projects = projectsQuery.data ?? []
+  const episodes = useQuery({
+    queryKey: ['episodes', projectId || 'all', ''],
+    queryFn: () => api.listEpisodes(projectId ? { project_id: projectId } : {}),
+  })
   const rows = (episodes.data ?? []).filter((e) => e.current_transcript_id)
   // Shares the sidebar's health poll. Without the punctuation model every download 503s.
   const health = useQuery({ queryKey: ['health'], queryFn: () => api.health(), retry: false })
   const noModel = health.data?.readable_available === false
   const NO_MODEL = 'Máy chủ chưa cài mô hình thêm dấu câu'
-  const google = useQuery({ queryKey: ['google-repo'], queryFn: () => api.googleRepo() })
+  const google = useQuery({
+    queryKey: ['google-repo', projectId || 'default'],
+    queryFn: () => api.googleRepo(projectId || undefined),
+  })
   const sheetUrl = google.data?.enabled ? google.data.sheet_url : null
   const lastSync = google.data?.last_full_sync
 
@@ -25,9 +36,25 @@ export default function Exports() {
             Bản có dấu câu, chia đoạn theo câu.
           </p>
         </div>
-        <div className="sm:ml-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          {projects.length > 1 && (
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="field w-auto text-sm"
+              aria-label="Lọc theo dự án"
+            >
+              <option value="">Tất cả dự án</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           <ExportMenu
             label="Tải tất cả"
+            projectId={projectId || undefined}
             disabled={rows.length === 0 || noModel}
             disabledReason={noModel ? NO_MODEL : 'Chưa có tập nào được chép lời'}
           />

@@ -22,12 +22,12 @@ AUDIO_SUFFIXES = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus", ".flac"}
 
 
 def scan_audio(audio_dir: Path) -> list[Path]:
-    """Every audio file in ``audio_dir``, sorted, ignoring the derived 16 kHz WAVs."""
+    """Every audio file in ``audio_dir``, sorted, ignoring the derived 16 kHz files."""
     return sorted(
         p for p in audio_dir.rglob("*")
         if p.is_file()
         and p.suffix.lower() in AUDIO_SUFFIXES
-        and not p.name.endswith(".16k.wav")
+        and not p.name.endswith((".16k.flac", ".16k.wav"))
     )
 
 

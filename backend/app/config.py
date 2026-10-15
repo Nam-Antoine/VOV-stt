@@ -91,10 +91,20 @@ class Settings(BaseSettings):
     google_token_path: Path = Path("/data/google/token.json")
     #: "readable" (punctuated, sentence case) or "verbatim" (the corpus text).
     google_doc_layer: str = "readable"
-    google_folder_name: str = "Đàn bà 30+ Corpus"
-    google_sheet_name: str = "Đàn bà 30+ Corpus — Index"
     #: An edit in the app reaches its Doc this many minutes later at most.
     google_edit_debounce_min: int = 10
+    #: Delete an episode's local audio once its Google Doc holds the current text
+    #: (app/purge_audio.py). The deliverable is text; audio is ~120 MB per hour.
+    #: false = the original flow: audio is kept for playback and re-transcription.
+    purge_audio_after_sync: bool = False
+    #: Comma-separated e-mail addresses granted Editor on every project folder as it is
+    #: created (memory: the corpus owner must always be Editor). Kept out of the repo —
+    #: set only in .env. See google_repo/docs.py:share_editors.
+    google_share_editors_raw: str = Field(default="", alias="GOOGLE_SHARE_EDITORS", repr=False)
+
+    @property
+    def google_share_editors(self) -> list[str]:
+        return [e.strip() for e in self.google_share_editors_raw.split(",") if e.strip()]
 
     # --- derived -----------------------------------------------------------
     def ensure_dirs(self) -> None:

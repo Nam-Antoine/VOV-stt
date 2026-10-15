@@ -106,14 +106,19 @@ and then allowed to drift (PLAN §0.2).
 
 ## Google repository
 
-A copy of the transcripts in the owner's Google Drive (`GOOGLE_REPO_PLAN.md`):
+A copy of the transcripts in the owner's Google Drive (`GOOGLE_REPO_PLAN.md`). Every
+project (programme) gets its own copy:
 
-- a folder, `Đàn bà 30+ Corpus`;
-- in it, a Sheet, `Đàn bà 30+ Corpus — Index`, with one row per episode and 10 columns (Episode ID,
-  Title, Air date, Duration, Source URL, Tier, Status, Verified by, Verified date,
-  Syllables). The Title cell links to the episode's Doc;
+- a folder, `<project name> Corpus`;
+- in it, a Sheet, `<project name> Corpus — Index`, with one row per episode and columns
+  for the episode code, title, air date, duration, source URL, status, verified by, and
+  syllable count. The Title cell links to the episode's Doc;
 - in it, one Google Doc per transcribed episode: the punctuated reading copy, no speaker labels
   (`GOOGLE_DOC_LAYER=verbatim` puts the corpus text there instead).
+
+"Đàn bà 30+" is the first project and keeps the folder and Sheet it already had.
+`GOOGLE_SHARE_EDITORS` (in `.env`, comma-separated e-mails) is granted Editor on every
+project's folder as it is created.
 
 It is generated from the database and never read back. Access is an OAuth desktop client with
 the `drive.file` scope only, so the app sees nothing in Drive except the files it made, and

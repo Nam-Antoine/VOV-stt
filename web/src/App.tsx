@@ -1,25 +1,53 @@
+import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { api, ApiError } from './api/client'
-import { Cycle, Download, Library, Signout, Spinner, Tag, Users as UsersIcon } from './components/Icons'
+import { Cycle, Download, Folder, Library, Signout, Spinner, Tag, Users as UsersIcon } from './components/Icons'
 import ThemeToggle from './components/ThemeToggle'
+import { lastProjectId, rememberProject } from './lastProject'
 import Episode from './pages/Episode'
 import Episodes from './pages/Episodes'
 import Exports from './pages/Exports'
 import Hotwords from './pages/Hotwords'
 import Jobs from './pages/Jobs'
 import Login from './pages/Login'
+import Projects from './pages/Projects'
 import Account from './pages/Account'
 import Users from './pages/Users'
 import type { Me } from './api/types'
 
 const NAV = [
-  { to: '/episodes', label: 'Các tập', Icon: Library },
+  // The pre-Projects flat view — all episodes across every project in one list, upload
+  // included. Kept as an extra tab so Projects stays optional, not a forced migration.
+  { to: '/library', label: 'Thư viện', Icon: Library },
+  { to: '/projects', label: 'Dự án', Icon: Folder },
   { to: '/jobs', label: 'Tác vụ', Icon: Cycle },
   { to: '/hotwords', label: 'Từ khóa', Icon: Tag },
   { to: '/exports', label: 'Xuất file', Icon: Download },
 ]
+
+/** `/projects/:id` — the existing Episodes list, scoped to one project. */
+function ProjectEpisodes() {
+  const { id } = useParams<{ id: string }>()
+  const project = useQuery({
+    queryKey: ['project', id],
+    queryFn: () => api.getProject(id!),
+    enabled: !!id,
+  })
+  useEffect(() => {
+    if (id) rememberProject(id)
+  }, [id])
+  if (!id) return null
+  return <Episodes projectId={id} projectName={project.data?.name} />
+}
+
+/** `/` and any bookmarked `/episodes` — the last project someone had open, or the
+ *  project picker when nothing was remembered yet (a fresh browser, or it was cleared). */
+function LastProjectOrPicker() {
+  const id = lastProjectId()
+  return <Navigate to={id ? `/projects/${id}` : '/projects'} replace />
+}
 const ADMIN_NAV = [{ to: '/users', label: 'Tài khoản', Icon: UsersIcon }]
 
 /** Who is signed in; links to the Account page (change password). */
@@ -54,7 +82,7 @@ function SignOutButton({ onClick }: { onClick: () => void }) {
 
 function Wordmark() {
   return (
-    <Link to="/" className="inline-flex shrink-0" title="Kho ngữ liệu VN-STT — Đàn bà 30+">
+    <Link to="/" className="inline-flex shrink-0" title="Kho ngữ liệu VN-STT">
       <img src="/favicon.svg" alt="VN-STT" width={36} height={36} className="h-9 w-9" />
     </Link>
   )
@@ -64,8 +92,12 @@ function Wordmark() {
  * The lime card at the foot of the sidebar. The reference uses the slot for an upsell;
  * here it carries the one number the team works towards — hours verified.
  */
-function CorpusCard() {
-  const stats = useQuery({ queryKey: ['stats'], queryFn: () => api.stats(), refetchInterval: 60_000 })
+function CorpusCard({ projectId }: { projectId?: string }) {
+  const stats = useQuery({
+    queryKey: ['stats', projectId ?? 'all'],
+    queryFn: () => api.stats(projectId),
+    refetchInterval: 60_000,
+  })
   const hours = (h: number) => h.toLocaleString('vi-VN', { maximumFractionDigits: 1 })
   return (
     <div className="rounded-xl bg-accent p-4 text-accent-ink">
@@ -115,6 +147,9 @@ function WorkerPulse() {
 
 export default function App() {
   const queryClient = useQueryClient()
+  // CorpusCard is in the sidebar, outside <Routes>, so it reads the URL directly
+  // rather than via useParams (which only works inside a matched route's subtree).
+  const currentProjectId = useLocation().pathname.match(/^\/projects\/([^/]+)/)?.[1]
 
   // One probe decides whether the whole app is reachable. A 401 is a normal answer
   // here, not an error worth retrying.
@@ -196,7 +231,7 @@ export default function App() {
         <WorkerPulse />
 
         <div className="mt-auto space-y-4">
-          <CorpusCard />
+          <CorpusCard projectId={currentProjectId} />
           <div className="flex items-center gap-1 border-t border-line pt-4">
             {accounts && <AccountLink me={me} />}
             <div className="ml-auto flex shrink-0 items-center">
@@ -238,8 +273,11 @@ export default function App() {
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-8 lg:py-8">
           <Routes>
-            <Route path="/" element={<Navigate to="/episodes" replace />} />
-            <Route path="/episodes" element={<Episodes />} />
+            <Route path="/" element={<LastProjectOrPicker />} />
+            <Route path="/episodes" element={<LastProjectOrPicker />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/:id" element={<ProjectEpisodes />} />
+            <Route path="/library" element={<Episodes />} />
             <Route path="/episodes/:id" element={<Episode />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/hotwords" element={<Hotwords />} />

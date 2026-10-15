@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
-import { CloudUpload, Cycle, Play, Search, Spinner, Waveform } from '../components/Icons'
+import { ArrowLeft, CloudUpload, Cycle, Play, Search, Spinner, Waveform } from '../components/Icons'
 import type { Episode, EpisodeListItem, EpisodeStatus, Job } from '../api/types'
 import { EPISODE_STATUS_LABEL } from '../labels'
 
@@ -164,7 +164,7 @@ function subtitle(e: { air_date: string | null; slug: string }) {
   return `Phát sóng ${d}/${m}/${y}`
 }
 
-export default function Episodes() {
+export default function Episodes({ projectId, projectName }: { projectId?: string; projectName?: string }) {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState('')
@@ -184,8 +184,8 @@ export default function Episodes() {
   }, [search])
 
   const episodes = useQuery({
-    queryKey: ['episodes', q],
-    queryFn: () => api.listEpisodes(q ? { q } : {}),
+    queryKey: ['episodes', projectId, q],
+    queryFn: () => api.listEpisodes(q ? { project_id: projectId, q } : { project_id: projectId }),
     // While anything is mid-flight the list is the progress indicator.
     refetchInterval: (query) =>
       (query.state.data ?? []).some((e: EpisodeListItem) => IN_FLIGHT.includes(e.status))
@@ -246,7 +246,7 @@ export default function Episodes() {
         }
         let episode: Episode
         try {
-          episode = await api.uploadEpisode(file)
+          episode = await api.uploadEpisode(file, projectId)
         } catch (err) {
           failures.push({ name: file.name, reason: err instanceof ApiError ? err.detail : 'tải lên thất bại' })
           continue
@@ -299,8 +299,16 @@ export default function Episodes() {
 
       <header className="mb-5 flex flex-wrap items-center gap-3">
         <div>
-          <p className="eyebrow">Kho ngữ liệu</p>
-          <h1 className="title mt-1">Tải lên và chép lời</h1>
+          {projectId && (
+            <Link
+              to="/projects"
+              className="eyebrow inline-flex items-center gap-1.5 hover:text-ink"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Các dự án
+            </Link>
+          )}
+          <h1 className="title mt-1">{projectName ?? 'Tải lên và chép lời'}</h1>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
           {ingested.length > 0 && (

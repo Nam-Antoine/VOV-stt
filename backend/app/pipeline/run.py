@@ -78,7 +78,7 @@ def transcribe(
 
     log.info("audio: decoding %s to 16 kHz mono", audio_path)
     info = audio_mod.prepare(audio_path, work_dir)
-    samples, sample_rate = audio_mod.read_wav_f32(info.wav_path)
+    samples, sample_rate = audio_mod.read_pcm_f32(info.wav_path)
     watch.mark("audio")
     log.info("audio: %.1f s at %d Hz -> %s", info.duration_s, sample_rate, info.wav_path)
 
@@ -198,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--models", type=Path, default=Path(os.environ.get("MODELS_DIR", "models")),
                     help="models directory (default: $MODELS_DIR or ./models)")
     ap.add_argument("--work-dir", type=Path, default=None,
-                    help="where the 16 kHz WAV is kept (default: next to --out)")
+                    help="where the 16 kHz FLAC is kept (default: next to --out)")
     ap.add_argument("--source-url", default=None, help="recorded in source.url")
     ap.add_argument("--episode-id", default=None, help="uuid to record; generated if absent")
 

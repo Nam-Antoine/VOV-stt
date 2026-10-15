@@ -23,6 +23,21 @@ from .deps import require_editor
 router = APIRouter(prefix="/utterances", tags=["utterances"])
 
 
+def merged_verified_text(left: Utterance, right: Utterance) -> str | None:
+    """What ``text_verified`` becomes after merging ``left`` with the one after it.
+
+    ``None`` when neither side has been verified — the merge stays unverified.
+    Un-verified sides fall back to their own ``text_asr``, never to the other side's
+    (that produced a duplicate: computing this from ``left.text_asr`` *after* it had
+    already been overwritten with the merged pair repeated the right side's words).
+    """
+    if left.text_verified is None and right.text_verified is None:
+        return None
+    left_text = left.text_verified if left.text_verified is not None else left.text_asr
+    right_text = right.text_verified if right.text_verified is not None else right.text_asr
+    return f"{left_text} {right_text}"
+
+
 def _get(session: Session, utterance_id: uuid.UUID) -> Utterance:
     """The utterance, for a write. Every route in this module writes."""
     utterance = session.get(Utterance, utterance_id)
@@ -173,12 +188,12 @@ def merge_next(
         raise HTTPException(status_code=409, detail="không có lượt lời tiếp theo")
 
     before = utterance.text_verified
+    # Computed before text_asr is overwritten below — merged_verified_text reads both
+    # sides' own text_asr as the un-verified fallback.
+    merged_verified = merged_verified_text(utterance, nxt)
     utterance.text_asr = f"{utterance.text_asr} {nxt.text_asr}"
-    if utterance.text_verified is not None or nxt.text_verified is not None:
-        left = (utterance.text_verified if utterance.text_verified is not None
-                else utterance.text_asr)
-        right = nxt.text_verified if nxt.text_verified is not None else nxt.text_asr
-        utterance.text_verified = f"{left} {right}"
+    if merged_verified is not None:
+        utterance.text_verified = merged_verified
         _log_edit(session, utterance, before, utterance.text_verified, editor)
         utterance.verified_by = editor
         utterance.verified_at = datetime.now(UTC)

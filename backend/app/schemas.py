@@ -71,6 +71,32 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, max_length=256)
 
 
+# --- projects -----------------------------------------------------------------
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class ProjectPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class ProjectOut(ORMModel):
+    id: uuid.UUID
+    slug: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+    #: None until the first sync has run (GOOGLE_REPO_ENABLED off, or not synced yet).
+    sheet_url: str | None = None
+    n_episodes: int = 0
+    n_transcribed: int = 0
+    n_verified: int = 0
+    hours_verified: float = 0.0
+
+
 # --- episodes ---------------------------------------------------------------
 
 class EpisodeBase(BaseModel):
@@ -78,12 +104,25 @@ class EpisodeBase(BaseModel):
     title: str | None = None
     source_url: str | None = None
     air_date: date | None = None
+    project_id: uuid.UUID
 
 
 class EpisodeFromUrl(BaseModel):
     url: str
     title: str | None = None
     air_date: date | None = None
+    #: Which project to file this episode under; the default project when omitted.
+    project_id: uuid.UUID | None = None
+
+
+class EpisodePatch(BaseModel):
+    """PATCH /episodes/{id}: rename and/or move to another project.
+
+    The slug stays either way — it is the episode's identity, not its label.
+    """
+
+    title: str | None = Field(default=None, max_length=300)
+    project_id: uuid.UUID | None = None
 
 
 class EpisodeOut(ORMModel, EpisodeBase):
