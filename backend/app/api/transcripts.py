@@ -15,10 +15,10 @@ from sqlalchemy.orm import Session
 
 from .. import player
 from .. import readable as readable_mod
-from ..pipeline import audio as audio_mod
 from ..config import settings
 from ..db import get_session
 from ..models import Episode, Transcript, Utterance, Word
+from ..pipeline import audio as audio_mod
 from ..schemas import TranscriptOut, UtteranceOut, WordOut
 from .deps import refresh_readable_layer, require_editor
 
@@ -150,7 +150,8 @@ def stream_audio(
     if audio_mod.is_derived(path):
         path = player.proxy_or_schedule(path) or path
     size = path.stat().st_size
-    media_type = {".wav": "audio/wav", ".flac": "audio/flac", ".m4a": "audio/mp4"}.get(path.suffix) or (
+    known = {".wav": "audio/wav", ".flac": "audio/flac", ".m4a": "audio/mp4"}
+    media_type = known.get(path.suffix) or (
         mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     )
     headers = {"Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600"}

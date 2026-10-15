@@ -19,8 +19,8 @@ needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg
 def test_flac_holds_the_same_samples_as_wav(tmp_path):
     src = tmp_path / "ep.mp3"
     subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=2:sample_rate=44100",
-         "-ac", "2", str(src)],
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=f=440:d=2:sample_rate=44100", "-ac", "2", str(src)],
         check=True,
     )
     wav = tmp_path / "ep.16k.wav"

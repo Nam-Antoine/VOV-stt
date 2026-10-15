@@ -87,4 +87,5 @@ def test_keeps_audio_when_drive_doubts_the_doc(episode, tmp_path, monkeypatch):
 
 def test_worker_hook_is_off_by_default(monkeypatch):
     monkeypatch.setattr(settings, "purge_audio_after_sync", False)
-    assert purge_audio.purge_after_sync(_Session(), {"id": 1, "episode_id": uuid.uuid4()}) is None
+    job = {"id": 1, "episode_id": uuid.uuid4()}
+    assert purge_audio.purge_after_sync(_Session(), job) is None
